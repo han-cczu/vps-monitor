@@ -93,16 +93,21 @@ export function ServersListView() {
       field: 'name',
       headerName: '名称',
       flex: 1,
-      minWidth: 200,
+      minWidth: 180,
       renderCell: (params) => (
         <Box sx={{ gap: 1.5, height: 1, display: 'flex', alignItems: 'center' }}>
           <FlagIcon code={params.row.region} sx={{ width: 24, height: 24 }} />
           <Box sx={{ minWidth: 0 }}>
-            <Typography variant="body2" noWrap>
+            <Typography variant="body2" noWrap sx={{ lineHeight: 1.4 }}>
               {params.row.name}
             </Typography>
             {params.row.public_host && (
-              <Typography variant="caption" noWrap sx={{ color: 'text.secondary' }}>
+              <Typography
+                variant="caption"
+                noWrap
+                component="div"
+                sx={{ lineHeight: 1.4, color: 'text.secondary' }}
+              >
                 {params.row.public_host}
               </Typography>
             )}
@@ -113,19 +118,19 @@ export function ServersListView() {
     {
       field: 'region',
       headerName: '地区',
-      width: 120,
+      width: 104,
       renderCell: (params) => formatRegion(params.row.region) || '—',
     },
     {
       field: 'group_name',
       headerName: '分组',
-      width: 120,
+      width: 104,
       renderCell: (params) => params.row.group_name || '—',
     },
     {
       field: 'tags',
       headerName: '标签',
-      width: 180,
+      width: 150,
       sortable: false,
       filterable: false,
       renderCell: (params) => (
@@ -143,7 +148,7 @@ export function ServersListView() {
     {
       field: 'online',
       headerName: '状态',
-      width: 110,
+      width: 96,
       renderCell: (params) =>
         params.row.online ? (
           <Label variant="soft" color="success">
@@ -158,27 +163,27 @@ export function ServersListView() {
     {
       field: 'expire_at',
       headerName: '到期',
-      width: 150,
+      width: 140,
       renderCell: (params) => <ExpireCell expireAt={params.row.expire_at} />,
     },
     {
       field: 'price',
       headerName: '价格',
-      width: 130,
+      width: 116,
       renderCell: (params) =>
         formatPrice(params.row.price, params.row.currency, params.row.billing_cycle),
     },
     {
       field: 'traffic_limit',
       headerName: '流量',
-      width: 110,
+      width: 96,
       renderCell: (params) => formatTrafficLimit(params.row.traffic_limit),
     },
     {
       type: 'actions',
       field: 'actions',
       headerName: ' ',
-      width: 60,
+      width: 56,
       align: 'right',
       headerAlign: 'right',
       sortable: false,
@@ -242,6 +247,7 @@ export function ServersListView() {
           rows={servers}
           columns={columns}
           loading={serversLoading}
+          rowHeight={64}
           getRowId={(row) => row.id}
           disableRowSelectionOnClick
           pageSizeOptions={[10, 25, 50]}

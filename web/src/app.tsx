@@ -1,6 +1,10 @@
 import 'src/global.css';
+import 'dayjs/locale/zh-cn';
 
 import { useEffect } from 'react';
+
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 
 import { usePathname } from 'src/routes/hooks';
 
@@ -29,13 +33,16 @@ export default function App({ children }: AppProps) {
           modeStorageKey={themeConfig.modeStorageKey}
           defaultMode={themeConfig.defaultMode}
         >
-          <MotionLazy>
-            <ProgressBar />
-            {/* toast 宿主：starter 没有挂它，sections 里的 toast.success/error 需要 */}
-            <Snackbar />
-            <SettingsDrawer defaultSettings={defaultSettings} />
-            {children}
-          </MotionLazy>
+          {/* 日期选择器的上下文：starter 没挂，用到 <Field.DatePicker /> 的页面不挂就会直接抛错 */}
+          <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="zh-cn">
+            <MotionLazy>
+              <ProgressBar />
+              {/* toast 宿主：starter 没有挂它，sections 里的 toast.success/error 需要 */}
+              <Snackbar />
+              <SettingsDrawer defaultSettings={defaultSettings} />
+              {children}
+            </MotionLazy>
+          </LocalizationProvider>
         </ThemeProvider>
       </SettingsProvider>
     </AuthProvider>

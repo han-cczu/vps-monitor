@@ -262,14 +262,22 @@ export function ServerFormDialog({
               freeSolo
               autoSelect
               options={REGION_OPTIONS.map((item) => item.code)}
-              getOptionLabel={(option) =>
-                typeof option === 'string' ? (REGION_LABELS[option] ?? option) : ''
-              }
+              // 输入框里显示国家码本身：它才是存进去的值，也是校验规则说的东西；
+              // 中文名只在下拉选项里出现，免得输入框显示「日本」却存着 JP
+              getOptionLabel={(option) => (typeof option === 'string' ? option : '')}
               renderOption={(props, option) => (
                 <li {...props} key={String(option)}>
                   {REGION_LABELS[String(option)] ?? option} {String(option)}
                 </li>
               )}
+              filterOptions={(options, state) => {
+                const keyword = state.inputValue.trim().toLowerCase();
+                if (!keyword) return options;
+                return options.filter((code) => {
+                  const label = REGION_LABELS[String(code)] ?? '';
+                  return String(code).toLowerCase().includes(keyword) || label.includes(keyword);
+                });
+              }}
               helperText="订阅与卡片上的国旗按这个国家码显示"
             />
 
