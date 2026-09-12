@@ -2,11 +2,16 @@ import type { AxiosRequestConfig } from 'axios';
 
 import axios from 'axios';
 
+import { paths } from 'src/routes/paths';
+
 import { CONFIG } from 'src/global-config';
+
+import { JWT_STORAGE_KEY } from 'src/auth/context/jwt/constant';
 
 // ----------------------------------------------------------------------
 
 const axiosInstance = axios.create({
+  // 留空 = 同源；开发时由 Vite 代理转发到 Go
   baseURL: CONFIG.serverUrl,
   headers: {
     'Content-Type': 'application/json',
@@ -14,22 +19,34 @@ const axiosInstance = axios.create({
 });
 
 /**
- * Optional: Add token (if using auth)
- *
- axiosInstance.interceptors.request.use((config) => {
-  const token = localStorage.getItem('accessToken');
-  if (token) {
+ * 请求拦截器：每次请求都从 sessionStorage 取一次 token。
+ * setSession() 只在登录那一刻设置 axios 默认头，刷新页面后要等 checkUserSession() 重设，
+ * 这里兜底，避免刷新后第一批请求漏带 Authorization。
+ */
+axiosInstance.interceptors.request.use((config) => {
+  const token = sessionStorage.getItem(JWT_STORAGE_KEY);
+
+  if (token && !config.headers.Authorization) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+
   return config;
 });
-*
-*/
 
+/** 响应拦截器：401 一律清 session 并回登录页。 */
 axiosInstance.interceptors.response.use(
   (response) => response,
   (error) => {
-    const message = error?.response?.data?.message || error?.message || 'Something went wrong!';
+    if (error?.response?.status === 401) {
+      sessionStorage.removeItem(JWT_STORAGE_KEY);
+      delete axiosInstance.defaults.headers.common.Authorization;
+
+      if (!window.location.pathname.startsWith(paths.auth.signIn)) {
+        window.location.href = paths.auth.signIn;
+      }
+    }
+
+    const message = error?.response?.data?.error || error?.message || '请求失败';
     console.error('Axios error:', message);
     return Promise.reject(new Error(message));
   }
@@ -57,28 +74,9 @@ export const fetcher = async <T = unknown>(
 // ----------------------------------------------------------------------
 
 export const endpoints = {
-  chat: '/api/chat',
-  kanban: '/api/kanban',
-  calendar: '/api/calendar',
+  health: '/api/health',
   auth: {
     me: '/api/auth/me',
     signIn: '/api/auth/sign-in',
-    signUp: '/api/auth/sign-up',
-  },
-  mail: {
-    list: '/api/mail/list',
-    details: '/api/mail/details',
-    labels: '/api/mail/labels',
-  },
-  post: {
-    list: '/api/post/list',
-    details: '/api/post/details',
-    latest: '/api/post/latest',
-    search: '/api/post/search',
-  },
-  product: {
-    list: '/api/product/list',
-    details: '/api/product/details',
-    search: '/api/product/search',
   },
 } as const;

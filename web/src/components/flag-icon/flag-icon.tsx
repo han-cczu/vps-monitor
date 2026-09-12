@@ -1,4 +1,5 @@
 import { mergeClasses } from 'minimal-shared/utils';
+import * as flags from 'country-flag-icons/react/3x2';
 
 import { styled } from '@mui/material/styles';
 
@@ -6,23 +7,29 @@ import { flagIconClasses } from './classes';
 
 // ----------------------------------------------------------------------
 
+type FlagComponent = React.ComponentType<React.SVGProps<SVGSVGElement>>;
+
+const flagComponents = flags as unknown as Record<string, FlagComponent | undefined>;
+
 export type FlagIconProps = React.ComponentProps<typeof FlagRoot> & {
+  /** ISO 3166-1 alpha-2，大小写都行 */
   code?: string;
 };
 
+/**
+ * 国旗 SVG 来自本地的 country-flag-icons，不走外网。
+ * 找不到对应国家码时返回 null，不占位。
+ */
 export function FlagIcon({ code, className, sx, ...other }: FlagIconProps) {
-  if (!code) {
+  const Flag = code ? flagComponents[code.toUpperCase()] : undefined;
+
+  if (!Flag) {
     return null;
   }
 
   return (
     <FlagRoot className={mergeClasses([flagIconClasses.root, className])} sx={sx} {...other}>
-      <FlagImg
-        loading="lazy"
-        alt={code}
-        src={`https://purecatamphetamine.github.io/country-flag-icons/3x2/${code?.toUpperCase()}.svg`}
-        className={flagIconClasses.img}
-      />
+      <Flag className={flagIconClasses.img} aria-label={code} />
     </FlagRoot>
   );
 }
@@ -39,11 +46,10 @@ const FlagRoot = styled('span')(({ theme }) => ({
   display: 'inline-flex',
   justifyContent: 'center',
   backgroundColor: theme.vars.palette.background.neutral,
-}));
-
-const FlagImg = styled('img')(() => ({
-  width: '100%',
-  height: '100%',
-  maxWidth: 'unset',
-  objectFit: 'cover',
+  [`& .${flagIconClasses.img}`]: {
+    width: '100%',
+    height: '100%',
+    maxWidth: 'unset',
+    objectFit: 'cover',
+  },
 }));

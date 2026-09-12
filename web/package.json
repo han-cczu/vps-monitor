@@ -1,8 +1,7 @@
 {
-  "name": "@minimal-kit/starter-vite-ts",
-  "author": "Minimals",
-  "version": "7.7.0",
-  "description": "Vite Starter & TypeScript",
+  "name": "vps-monitor-web",
+  "version": "0.1.0",
+  "description": "VPS Monitor 面板前端",
   "private": true,
   "type": "module",
   "scripts": {
@@ -15,18 +14,15 @@
     "fm:check": "prettier --check \"src/**/*.{js,jsx,ts,tsx}\"",
     "fm:fix": "prettier --write \"src/**/*.{js,jsx,ts,tsx}\"",
     "fix:all": "npm run lint:fix && npm run fm:fix",
-    "clean": "rm -rf node_modules .next out dist build",
-    "re:dev": "yarn clean && yarn install && yarn dev",
-    "re:build": "yarn clean && yarn install && yarn build",
+    "clean": "rm -rf node_modules dist",
     "re:build-npm": "npm run clean && npm install && npm run build",
     "tsc:watch": "tsc --noEmit --watch",
     "tsc:print": "tsc --showConfig",
     "tsc:check": "tsc --noEmit --pretty"
   },
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=24.0.0"
   },
-  "packageManager": "yarn@1.22.22",
   "dependencies": {
     "@emotion/cache": "^11.14.0",
     "@emotion/react": "^11.14.0",
@@ -44,20 +40,27 @@
     "@mui/x-data-grid": "^9.1.0",
     "@mui/x-date-pickers": "^9.1.0",
     "@mui/x-tree-view": "^9.1.0",
+    "apexcharts": "^7.2.0",
     "autosuggest-highlight": "^3.3.4",
     "axios": "^1.16.0",
+    "country-flag-icons": "^1.6.20",
     "dayjs": "^1.11.20",
     "es-toolkit": "^1.46.1",
     "framer-motion": "^12.38.0",
     "minimal-shared": "^1.1.6",
     "nprogress": "^0.2.0",
+    "qrcode.react": "^4.2.0",
     "react": "^19.2.6",
+    "react-apexcharts": "^2.1.1",
     "react-dom": "^19.2.6",
     "react-hook-form": "^7.75.0",
     "react-router": "^7.15.0",
     "simplebar-react": "^3.3.2",
+    "sonner": "^2.0.8",
     "stylis": "^4.4.0",
-    "zod": "^4.4.3"
+    "swr": "^2.5.1",
+    "zod": "^4.4.3",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",

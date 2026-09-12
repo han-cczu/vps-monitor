@@ -8,47 +8,41 @@ const ROOTS = {
 // ----------------------------------------------------------------------
 
 export const paths = {
-  faqs: '/faqs',
-  minimalStore: 'https://mui.com/store/items/minimal-dashboard/',
-  // AUTH
+  // AUTH（只有一种方式：面板自己的 JWT 登录）
   auth: {
-    amplify: {
-      signIn: `${ROOTS.AUTH}/amplify/sign-in`,
-      verify: `${ROOTS.AUTH}/amplify/verify`,
-      signUp: `${ROOTS.AUTH}/amplify/sign-up`,
-      updatePassword: `${ROOTS.AUTH}/amplify/update-password`,
-      resetPassword: `${ROOTS.AUTH}/amplify/reset-password`,
-    },
-    jwt: {
-      signIn: `${ROOTS.AUTH}/jwt/sign-in`,
-      signUp: `${ROOTS.AUTH}/jwt/sign-up`,
-    },
-    firebase: {
-      signIn: `${ROOTS.AUTH}/firebase/sign-in`,
-      verify: `${ROOTS.AUTH}/firebase/verify`,
-      signUp: `${ROOTS.AUTH}/firebase/sign-up`,
-      resetPassword: `${ROOTS.AUTH}/firebase/reset-password`,
-    },
-    auth0: {
-      signIn: `${ROOTS.AUTH}/auth0/sign-in`,
-    },
-    supabase: {
-      signIn: `${ROOTS.AUTH}/supabase/sign-in`,
-      verify: `${ROOTS.AUTH}/supabase/verify`,
-      signUp: `${ROOTS.AUTH}/supabase/sign-up`,
-      updatePassword: `${ROOTS.AUTH}/supabase/update-password`,
-      resetPassword: `${ROOTS.AUTH}/supabase/reset-password`,
-    },
+    signIn: `${ROOTS.AUTH}/sign-in`,
   },
   // DASHBOARD
   dashboard: {
     root: ROOTS.DASHBOARD,
-    two: `${ROOTS.DASHBOARD}/two`,
-    three: `${ROOTS.DASHBOARD}/three`,
-    group: {
-      root: `${ROOTS.DASHBOARD}/group`,
-      five: `${ROOTS.DASHBOARD}/group/five`,
-      six: `${ROOTS.DASHBOARD}/group/six`,
+    /** 监控总览 */
+    overview: ROOTS.DASHBOARD,
+    /** 节点 */
+    servers: {
+      root: `${ROOTS.DASHBOARD}/servers`,
+      new: `${ROOTS.DASHBOARD}/servers/new`,
+      details: (id: string | number) => `${ROOTS.DASHBOARD}/servers/${id}`,
+      edit: (id: string | number) => `${ROOTS.DASHBOARD}/servers/${id}/edit`,
+      proxy: (id: string | number) => `${ROOTS.DASHBOARD}/servers/${id}/proxy`,
+    },
+    /** 代理 */
+    proxy: {
+      root: `${ROOTS.DASHBOARD}/proxy`,
+    },
+    /** 订阅用户 */
+    subscribers: {
+      root: `${ROOTS.DASHBOARD}/subscribers`,
+      new: `${ROOTS.DASHBOARD}/subscribers/new`,
+      details: (id: string | number) => `${ROOTS.DASHBOARD}/subscribers/${id}`,
+    },
+    /** 告警 */
+    alerts: {
+      root: `${ROOTS.DASHBOARD}/alerts`,
+    },
+    /** 设置 */
+    settings: {
+      root: `${ROOTS.DASHBOARD}/settings`,
+      account: `${ROOTS.DASHBOARD}/settings/account`,
     },
   },
 };

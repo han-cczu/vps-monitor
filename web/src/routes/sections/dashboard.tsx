@@ -3,7 +3,6 @@ import type { RouteObject } from 'react-router';
 import { Outlet } from 'react-router';
 import { lazy, Suspense } from 'react';
 
-import { CONFIG } from 'src/global-config';
 import { DashboardLayout } from 'src/layouts/dashboard';
 
 import { LoadingScreen } from 'src/components/loading-screen';
@@ -14,12 +13,12 @@ import { usePathname } from '../hooks';
 
 // ----------------------------------------------------------------------
 
-const IndexPage = lazy(() => import('src/pages/dashboard/one'));
-const PageTwo = lazy(() => import('src/pages/dashboard/two'));
-const PageThree = lazy(() => import('src/pages/dashboard/three'));
-const PageFour = lazy(() => import('src/pages/dashboard/four'));
-const PageFive = lazy(() => import('src/pages/dashboard/five'));
-const PageSix = lazy(() => import('src/pages/dashboard/six'));
+const OverviewPage = lazy(() => import('src/pages/dashboard/overview'));
+const ServersPage = lazy(() => import('src/pages/dashboard/servers'));
+const ProxyPage = lazy(() => import('src/pages/dashboard/proxy'));
+const SubscribersPage = lazy(() => import('src/pages/dashboard/subscribers'));
+const AlertsPage = lazy(() => import('src/pages/dashboard/alerts'));
+const SettingsPage = lazy(() => import('src/pages/dashboard/settings'));
 
 // ----------------------------------------------------------------------
 
@@ -41,19 +40,14 @@ const dashboardLayout = () => (
 export const dashboardRoutes: RouteObject[] = [
   {
     path: 'dashboard',
-    element: CONFIG.auth.skip ? dashboardLayout() : <AuthGuard>{dashboardLayout()}</AuthGuard>,
+    element: <AuthGuard>{dashboardLayout()}</AuthGuard>,
     children: [
-      { element: <IndexPage />, index: true },
-      { path: 'two', element: <PageTwo /> },
-      { path: 'three', element: <PageThree /> },
-      {
-        path: 'group',
-        children: [
-          { element: <PageFour />, index: true },
-          { path: 'five', element: <PageFive /> },
-          { path: 'six', element: <PageSix /> },
-        ],
-      },
+      { element: <OverviewPage />, index: true },
+      { path: 'servers', element: <ServersPage /> },
+      { path: 'proxy', element: <ProxyPage /> },
+      { path: 'subscribers', element: <SubscribersPage /> },
+      { path: 'alerts', element: <AlertsPage /> },
+      { path: 'settings', element: <SettingsPage /> },
     ],
   },
 ];

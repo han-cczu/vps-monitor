@@ -4,7 +4,6 @@ import { paths } from 'src/routes/paths';
 
 import { CONFIG } from 'src/global-config';
 
-import { Label } from 'src/components/label';
 import { SvgColor } from 'src/components/svg-color';
 
 // ----------------------------------------------------------------------
@@ -14,70 +13,40 @@ const icon = (name: string) => (
 );
 
 const ICONS = {
-  job: icon('ic-job'),
-  blog: icon('ic-blog'),
-  chat: icon('ic-chat'),
-  mail: icon('ic-mail'),
-  user: icon('ic-user'),
-  file: icon('ic-file'),
-  lock: icon('ic-lock'),
-  tour: icon('ic-tour'),
-  order: icon('ic-order'),
-  label: icon('ic-label'),
-  blank: icon('ic-blank'),
-  kanban: icon('ic-kanban'),
-  folder: icon('ic-folder'),
-  course: icon('ic-course'),
-  params: icon('ic-params'),
-  banking: icon('ic-banking'),
-  booking: icon('ic-booking'),
-  invoice: icon('ic-invoice'),
-  product: icon('ic-product'),
-  calendar: icon('ic-calendar'),
-  disabled: icon('ic-disabled'),
-  external: icon('ic-external'),
-  subpaths: icon('ic-subpaths'),
-  menuItem: icon('ic-menu-item'),
-  ecommerce: icon('ic-ecommerce'),
-  analytics: icon('ic-analytics'),
-  dashboard: icon('ic-dashboard'),
+  overview: icon('ic-dashboard'),
+  servers: icon('ic-analytics'),
+  proxy: icon('ic-lock'),
+  subscribers: icon('ic-user'),
+  alerts: icon('ic-label'),
+  settings: icon('ic-params'),
 };
 
 // ----------------------------------------------------------------------
 
+/**
+ * 侧栏导航。步骤 01 只放占位入口，页面在各自步骤里补（06 总览、03 节点、14 代理、
+ * 15 订阅用户、19 告警、02/20 设置）。
+ */
 export const navData: NavSectionProps['data'] = [
-  /**
-   * Overview
-   */
   {
-    subheader: 'Overview',
+    subheader: '监控',
     items: [
-      {
-        title: 'One',
-        path: paths.dashboard.root,
-        icon: ICONS.dashboard,
-        info: <Label>v{CONFIG.appVersion}</Label>,
-      },
-      { title: 'Two', path: paths.dashboard.two, icon: ICONS.ecommerce },
-      { title: 'Three', path: paths.dashboard.three, icon: ICONS.analytics },
+      { title: '监控总览', path: paths.dashboard.overview, icon: ICONS.overview },
+      { title: '节点', path: paths.dashboard.servers.root, icon: ICONS.servers },
     ],
   },
-  /**
-   * Management
-   */
   {
-    subheader: 'Management',
+    subheader: '代理',
     items: [
-      {
-        title: 'Group',
-        path: paths.dashboard.group.root,
-        icon: ICONS.user,
-        children: [
-          { title: 'Four', path: paths.dashboard.group.root },
-          { title: 'Five', path: paths.dashboard.group.five },
-          { title: 'Six', path: paths.dashboard.group.six },
-        ],
-      },
+      { title: '代理', path: paths.dashboard.proxy.root, icon: ICONS.proxy },
+      { title: '订阅用户', path: paths.dashboard.subscribers.root, icon: ICONS.subscribers },
+    ],
+  },
+  {
+    subheader: '系统',
+    items: [
+      { title: '告警', path: paths.dashboard.alerts.root, icon: ICONS.alerts },
+      { title: '设置', path: paths.dashboard.settings.root, icon: ICONS.settings },
     ],
   },
 ];

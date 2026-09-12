@@ -1,0 +1,59 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: go vet + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: |
+            agent/go.sum
+            server/go.sum
+
+      # 工作区根目录没有 go.mod，必须显式列出三个模块的包路径
+      - name: go vet
+        run: go vet ./proto/... ./agent/... ./server/...
+
+      - name: go test
+        run: go test ./proto/... ./agent/... ./server/...
+
+      - name: go build (agent 交叉编译)
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /dev/null ./agent/cmd/agent
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o /dev/null ./agent/cmd/agent
+
+  web:
+    name: tsc + eslint + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run tsc:check
+
+      - run: npm run lint
+
+      - run: npm run build

@@ -11,7 +11,6 @@ import { Scrollbar } from 'src/components/scrollbar';
 import { NavSectionMini, NavSectionVertical } from 'src/components/nav-section';
 
 import { layoutClasses } from '../core';
-import { NavUpgrade } from '../components/nav-upgrade';
 import { NavToggleButton } from '../components/nav-toggle-button';
 
 // ----------------------------------------------------------------------
@@ -55,7 +54,7 @@ export function NavVertical({
           sx={{ px: 2, flex: '1 1 auto' }}
         />
 
-        {slots?.bottomArea ?? <NavUpgrade />}
+        {slots?.bottomArea}
       </Scrollbar>
     </>
   );

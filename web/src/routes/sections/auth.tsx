@@ -11,46 +11,9 @@ import { GuestGuard } from 'src/auth/guard';
 
 // ----------------------------------------------------------------------
 
-/** **************************************
- * Jwt
- *************************************** */
-const Jwt = {
-  SignInPage: lazy(() => import('src/pages/auth/jwt/sign-in')),
-  SignUpPage: lazy(() => import('src/pages/auth/jwt/sign-up')),
-};
+const SignInPage = lazy(() => import('src/pages/auth/sign-in'));
 
-const authJwt = {
-  path: 'jwt',
-  children: [
-    {
-      path: 'sign-in',
-      element: (
-        <GuestGuard>
-          <AuthSplitLayout
-            slotProps={{
-              section: { title: 'Hi, Welcome back' },
-            }}
-          >
-            <Jwt.SignInPage />
-          </AuthSplitLayout>
-        </GuestGuard>
-      ),
-    },
-    {
-      path: 'sign-up',
-      element: (
-        <GuestGuard>
-          <AuthSplitLayout>
-            <Jwt.SignUpPage />
-          </AuthSplitLayout>
-        </GuestGuard>
-      ),
-    },
-  ],
-};
-
-// ----------------------------------------------------------------------
-
+// 面板是单管理员、整站登录墙，没有注册与找回密码
 export const authRoutes: RouteObject[] = [
   {
     path: 'auth',
@@ -59,6 +22,17 @@ export const authRoutes: RouteObject[] = [
         <Outlet />
       </Suspense>
     ),
-    children: [authJwt],
+    children: [
+      {
+        path: 'sign-in',
+        element: (
+          <GuestGuard>
+            <AuthSplitLayout slotProps={{ section: { title: 'VPS Monitor' } }}>
+              <SignInPage />
+            </AuthSplitLayout>
+          </GuestGuard>
+        ),
+      },
+    ],
   },
 ];
