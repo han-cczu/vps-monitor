@@ -108,6 +108,49 @@ cp dist/agent/* agent/install.sh data/agent/
 
 没放之前访问 `/install.sh` 会返回纯文本 404（不是 500，也不是前端页面），属正常。
 
+### agent（步骤 04）
+
+装 agent 前先把产物放进面板的下载目录（见上一节）：
+
+```sh
+make build-agent                       # dist/agent/：两个架构的二进制 + install.sh + uninstall.sh
+cp dist/agent/* {VM_DATA_DIR}/agent/
+```
+
+然后在节点上执行面板给的一键命令（`--base` 不写就按 `--server` 推导）：
+
+```sh
+curl -fsSL https://panel.example.com/install.sh | bash -s -- \
+  --server wss://panel.example.com/api/agent/ws --token TOKEN
+```
+
+脚本做的事：认架构（x86_64 / aarch64，其余退出）→ 下载到临时文件、跑一次 `--version` 验证、原子替换
+`/usr/local/bin/vps-agent` → 写 `/etc/vps-agent/config.yaml`（0600）与 systemd unit → `enable --now` →
+打印状态与最近 5 行日志。**重复执行等于升级 + 重启**，已有配置只有 `server` 与 `token` 会被改写，
+其余项（上报间隔、网卡过滤、挂载点）保留。
+
+配置文件：
+
+```yaml
+server: wss://panel.example.com/api/agent/ws
+token: "..."
+report_interval: 1          # 秒，1–60；服务端的 config 消息可以覆盖
+interfaces:
+  exclude: ["lo", "docker*", "veth*", "br-*", "tun*", "tap*", "tailscale*", "wg*"]
+disk_mounts: ["/"]          # 多个挂载点会求和，同一设备只算一次
+log_level: info
+```
+
+常用命令：
+
+```sh
+systemctl status vps-agent
+journalctl -u vps-agent -f           # 日志是 JSON，一行一条
+vps-agent --once                     # 采集一次打印 JSON 就退出，不联网，用来对数
+vps-agent --version
+bash uninstall.sh                    # 卸载（--purge-core 连 sing-box 一起删，步骤 11 起有用）
+```
+
 ## 2. 构建
 
 ```sh
@@ -166,6 +209,31 @@ sqlite3 data/vm.db "SELECT ts, actor, action, target_id, ip FROM audit_log WHERE
 `servers` 是所有节点数据的根：删掉它，`server_host_info` 以及后续步骤的指标、ping 结果、入站、证书、修订、
 订阅分配都会被外键级联删除，**不可恢复**（面板上有二次确认）。删之前想留数据就先备份 `vm.db`。
 节点上的 agent 不会自己消失，要手动 `bash /path/uninstall.sh` 或停掉 systemd 服务，否则它会一直重连并被拒。
+
+### agent 连不上面板
+
+先看日志：`journalctl -u vps-agent -n 50`。
+
+| 日志里的样子 | 原因与处理 |
+|---|---|
+| `服务端拒绝了 token（401）` | token 不对或已被重置。到面板「节点 → 重置 token」拿新的，重新跑一次安装命令即可（幂等） |
+| `dial tcp ...: connection refused` / `i/o timeout` | 面板地址或端口不通：确认 `server` 写的是对外地址、DNS 解析正常、安全组放行 443 |
+| `tls: failed to verify certificate` | 面板证书有问题（自签或过期）。生产用 Caddy 自动签发；临时调试可以把 `server` 换成 `ws://`（明文，只在内网用） |
+| `连接断开，准备重连 ... retry_in=60s` 一直刷 | 退避已经到顶，说明长时间连不上。退避是 1→2→4…60 秒，日志不会刷屏；查上面几项 |
+
+agent 断线期间照常采集、直接丢弃这一帧，**累计流量不会丢**（读的是网卡计数器）；恢复连接后数据自然接上。
+
+### agent 的数字对不上
+
+```sh
+vps-agent --once     # 不联网，直接打印 hello 与 metrics
+```
+
+- **速率比 `vnstat` / `iftop` 高很多**：多半是把虚拟网卡算进去了。看 `interfaces.exclude`，
+  docker 网桥、veth 对、WireGuard 都要排除；改完 `systemctl restart vps-agent`。
+- **磁盘容量不对**：`disk_mounts` 默认只统计 `/`。挂了数据盘就写成 `["/", "/data"]`，会求和（同设备去重）。
+- **第一条 metrics 的 cpu 与速率是 0**：正常，差值算法要两次采样才有值。
+- **`tcp` / `udp` / `procs` 是 0**：这三项读 `/proc`，容器里没挂 `/proc` 或非 Linux 系统上就会是 0。
 
 ### 看访问日志
 

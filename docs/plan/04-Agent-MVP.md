@@ -133,13 +133,13 @@ WantedBy=multi-user.target
 
 ## 6. 验收标准
 
-- [ ] `vps-agent --once` 在一台 Linux 机器上输出一段 JSON，含 hello 与 metrics 两段；数值合理（CPU 0–100、内存已用小于总量、网卡不含 docker/veth）
-- [ ] 连续运行时 `rx_rate/tx_rate` 与 `vnstat -l` 或 `iftop` 同量级
-- [ ] 单元测试：网卡通配过滤、计数器回绕、`/proc/net/sockstat` 解析（用固定样本文本）
-- [ ] 无服务端时 agent 持续重连，日志间隔符合退避且不刷屏（60s 上限）
-- [ ] `install.sh` 在 Debian 12 与 Ubuntu 22.04 各装一次成功、重复执行成功、`uninstall.sh` 清理干净
-- [ ] 两架构二进制能在对应机器执行 `--version`
-- [ ] 常驻内存（RSS）小于 30 MB
+- [ ] `vps-agent --once` 在一台 Linux 机器上输出一段 JSON，含 hello 与 metrics 两段；数值合理（CPU 0–100、内存已用小于总量、网卡不含 docker/veth）——**待真机**（本机 Windows 上已跑通，数值合理）
+- [ ] 连续运行时 `rx_rate/tx_rate` 与 `vnstat -l` 或 `iftop` 同量级——**待真机**
+- [x] 单元测试：网卡通配过滤、计数器回绕、`/proc/net/sockstat` 解析（用固定样本文本）
+- [x] 无服务端时 agent 持续重连，日志间隔符合退避且不刷屏（60s 上限）
+- [ ] `install.sh` 在 Debian 12 与 Ubuntu 22.04 各装一次成功、重复执行成功、`uninstall.sh` 清理干净——**待真机**
+- [ ] 两架构二进制能在对应机器执行 `--version`——**待真机**（两个架构都编译通过）
+- [ ] 常驻内存（RSS）小于 30 MB——**待真机**
 
 ## 7. 风险与注意
 
@@ -154,4 +154,80 @@ WantedBy=multi-user.target
 
 ## 9. 偏离记录
 
-- 设计方案 §5.2 提到 agent 上报公网 IP；本步不做外网查询，改为服务端在 Hub 里用连接的来源地址填 `public_ip`（步骤 05）。
+> 实施日期：2026-09-12
+
+- 设计方案 §5.2 提到 agent 上报公网 IP；本步不做外网查询，改为服务端在 Hub 里用连接的来源地址填 `public_ip`（步骤 05）。（开工前就写在这里的一条）
+
+### 协议
+
+1. **消息改回扁平结构。** 步骤 01 在 `protocol.md` 里定过一版 `{type, id, ts, data}` 的信封，
+   但设计方案 §7 的报文从头到尾都是扁平的（`type` 是消息自己的字段）。本步定稿时改回扁平，
+   `proto.Envelope` 退化成只有 `Type` 的探测结构：先解它拿类型，再把同一段 JSON 解成具体结构体。
+   需要请求/响应配对的消息（步骤 11 的 `core.logs`）自己带字段配对。`protocol.md` §1 已整节改写。
+2. ping 结果的 type 用 **`ping`**（设计方案 §7.1 的写法），不是步骤 01 骨架里的 `ping.result`。
+3. `hello` 保留步骤 01 加的 **`proto_version`**（设计方案的示例里没有）：步骤 05 要靠它判断协议兼容性。
+
+### 依赖
+
+4. **agent 与服务端统一用 `coder/websocket`。** 步骤 05 文档写的是 `gorilla/websocket`，步骤 02 也为此预留了一个 indirect 依赖。
+   两边不同库能跑但没必要；选 coder 是因为它的 API 原生吃 `context`（读写超时、优雅关闭都靠 ctx），
+   而 gorilla 归档过一次、重启维护后仍是老式的 SetReadDeadline 风格。步骤 05 实现服务端时把 gorilla 这个 indirect 清掉。
+5. agent 模块跑了 `go mod tidy`（步骤 01 备注说等用上再 tidy）。
+   连带把尚未使用的 `pro-bing`（步骤 09 的 ICMP）、`uuid`、`x/net`、`x/sync` 删掉了，用到时再 `go get`。
+
+### 采集
+
+6. **CPU 百分比排除 `guest` / `guest_nice`。** Linux 把这两项同时记在 `user` / `nice` 里，
+   照 gopsutil 的字段全加一遍会重复计入，虚拟化机器上能虚高一截。公式是 `(总增量 − idle增量 − iowait增量) / 总增量`，结果夹在 0–100。
+7. **连接数读 `/proc/net/sockstat` 与 `sockstat6` 的 `inuse`**，没用 gopsutil 的 `net.Connections`：
+   后者要遍历 `/proc/*/fd` 把每个套接字解析一遍，连接数上万的机器上一次几百毫秒，秒级采集扛不住。
+   解析写成纯函数（`parseSockstat`），用固定样本做表驱动单测。
+8. **磁盘按设备去重。** `disk_mounts` 里两个路径指向同一个设备（bind mount）时只算一次，否则容量凭空翻倍。
+9. **网卡通配只支持末尾一个 `*`**，自己实现而不是用 `filepath.Match`：网卡名里出现 `[` 之类字符会让 Match 直接返回错误。
+   默认排除表比文档多了 `tap*` 与 `wg*`（TAP 设备与 WireGuard 都不是真实出口流量）。
+10. **IPv4 / IPv6 探测并行**（最坏只花一个超时），结果在 main 里缓存 5 分钟：
+    没有 v6 的机器每次重连都要等满 3 秒超时，不该让 hello 为此卡住。
+
+### 传输
+
+11. **退避归零的条件是「连接活过 30 秒」**，不是「连上就归零」。
+    否则遇到「能连上但立刻被关」（token 刚被重置、服务端正在滚动重启）会退化成每秒重连一次。
+12. 401 单独识别并在错误信息里直说是 token 的问题——否则用户看到的是一长串 WebSocket 握手错误，无从下手。
+13. `hello` 用回调提供而不是固定值：重连时机器可能已经加过内存、换过内核，重发的静态信息应该是新的。
+
+### 主程序
+
+14. **`--once` 在没有配置文件时按默认值跑**（文档没写这个情况），方便在还没装过的机器上直接 `./vps-agent --once` 对数；
+    并且内部**采两次样、中间隔满 1 秒**——CPU 与速率都是差值算出来的，只采一次打印出来永远是 0。
+15. 上报间隔用 `atomic.Int64` + `timer.Reset` 传递，服务端下发 `config` 后**下一帧**就生效（实测 1s → 3s）。
+
+### 脚本
+
+16. **install.sh 下载后先跑一次 `--version` 再原子替换**：既避免把正在运行的二进制写坏（先写临时文件再 `mv`），
+    也能挡住架构不匹配或下载到半截 HTML 的情况。
+17. **已有配置只改 `server` 与 `token` 两行**（用 awk，缺哪行补哪行），用户调过的上报间隔、网卡过滤、挂载点都保留。
+18. `Makefile` 的 `build-agent` 顺带把 `install.sh` / `uninstall.sh` 拷进 `dist/agent/`，
+    整个目录直接放进 `{VM_DATA_DIR}/agent/` 就能用（步骤 03 的下载白名单正好是这四个文件名）。
+
+### 留给后续步骤
+
+19. 服务端的 `/api/agent/ws` 要到步骤 05 才有，本步用一个临时 mock hub 做端到端验证。
+20. `config` 里的 `ping_tasks` 只记一条日志，步骤 09 才执行。
+21. `core.*` 消息类型已在 `proto` 里占好位，步骤 11 / 13 填。
+
+### 验收情况
+
+**本机（Windows）已验**：
+
+- `go vet` / `go test ./proto/... ./agent/... ./server/...` 全绿；两个架构交叉编译通过（amd64 7.2 MB、arm64 6.7 MB）
+- 单测覆盖网卡通配过滤（含 `lo` 不误伤 `local`、`br-*` 不误伤 `br0`）、计数器回绕、sockstat / sockstat6 解析与畸形输入、
+  CPU 百分比（含满载、全空闲、计数器回退）、配置默认值与校验、第一帧没有速率；
+  transport 侧用 httptest 起真 WebSocket 服务端，验了握手头、hello、config 分发、未连接时 `Send` 返回 `ErrNotConnected`、
+  服务端关闭后自动重连、401 的错误信息
+- `--once` 输出合理：CPU 14.32%、内存 35/51 GB、磁盘、网卡速率都对得上任务管理器（`tcp`/`udp`/`procs` 在 Windows 上是 0，符合预期）
+- 连不上时的退避实测 1s → 2s → 4s → 8s，日志一次一行不刷屏
+- 用临时 mock hub（冒充步骤 05 的 `/api/agent/ws`）跑真实二进制端到端：
+  鉴权头正确、第一条是 hello、metrics 每秒一条（实测间隔 1.01 秒）、下发 `config{report_interval:3}` 后间隔变成 3 秒
+
+**待真机（Linux VPS）**：第 6 节里标了「待真机」的五条——`--once` 的数值、速率与 `vnstat` 对比、
+install.sh 在 Debian / Ubuntu 上的安装与重复安装、`uninstall.sh` 清理、两架构 `--version`、RSS < 30 MB。

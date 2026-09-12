@@ -5,19 +5,107 @@
 
 ## 1. WebSocket · agent ↔ server
 
-端点：`wss://{面板域名}/api/agent/ws`
+端点：`wss://{面板域名}/api/agent/ws`（服务端侧在步骤 05 实现）
 
-（步骤 04 起填充。消息结构体见 `proto/msg.go`。）
+### 1.1 握手
 
-### 信封
+| 项 | 内容 |
+|---|---|
+| 鉴权 | 请求头 `Authorization: Bearer {agent token}`。token 是面板创建节点时给的 43 位 base64url 明文，服务端比对 sha256 |
+| 版本 | 请求头 `X-Agent-Version: {agent 版本}` |
+| 压缩 | `permessage-deflate`，context takeover |
+| 失败 | 校验不过返回 401。agent 照常按退避重连，但日志会直说是 token 的问题，不会让人对着一串握手错误发呆 |
+
+### 1.2 消息结构
+
+消息是**扁平 JSON**：`type` 是消息自身的一个字段，不套 `data` 信封。收到一帧先解出 `type` 再按类型解成具体结构。
 
 ```json
-{ "type": "metrics", "id": "可选，请求响应配对用", "ts": 1757600000000, "data": {} }
+{"type":"metrics","ts":1789199726,"cpu":11.26,"mem_used":34890579968,"...":"..."}
 ```
+
+> 步骤 01 在这里写过一版 `{type, id, ts, data}` 的信封，与设计方案 §7 的报文不符，步骤 04 定稿时改回扁平。
+> 需要请求/响应配对的消息（步骤 11 的 `core.logs`）自己带字段配对，不再依赖信封的 `id`。
+
+时间戳 `ts` 一律 Unix 秒，字节一律整数，字段名蛇形。结构体见 `proto/msg.go`。
 
 | 方向 | type | 说明 | 引入步骤 |
 |---|---|---|---|
-| — | — | — | — |
+| agent → server | `hello` | 连上后第一条：协议版本、agent 版本、静态信息；之后每 5 分钟重发一次 | 04 |
+| agent → server | `metrics` | 每 `report_interval` 秒一条 | 04 |
+| agent → server | `ping` | ping 任务结果 | 09 |
+| agent → server | `core.state` / `core.stats` / `core.logs` / `error` | sing-box 状态、流量、日志、执行失败 | 11 / 13 |
+| server → agent | `config` | 上报间隔、ping 任务 | 04 |
+| server → agent | `core.action` / `core.apply` | 安装启停、下发配置 | 11 / 13 |
+
+### 1.3 `hello`（agent → server）
+
+```json
+{
+  "type": "hello",
+  "proto_version": 1,
+  "version": "0.1.0",
+  "applied_revision": 0,
+  "host": {
+    "hostname": "hk-01", "os": "Debian 12", "kernel": "6.1.0-21-amd64", "arch": "x86_64",
+    "cpu_model": "AMD EPYC 7B13", "cores": 4,
+    "mem_total": 8318000000, "disk_total": 93500000000, "boot_time": 1756100000,
+    "ipv4": true, "ipv6": false
+  }
+}
+```
+
+- `proto_version` 是 `proto.Version`（当前 1），服务端用它做兼容判断。
+- `applied_revision` 是已应用的 sing-box 配置修订号，步骤 11 之前恒为 0。
+- `ipv4` / `ipv6` 是**出口可达性**，不是地址：agent 分别用 `tcp4` / `tcp6` 拨 `1.1.1.1:443` 与 `[2606:4700:4700::1111]:443`，3 秒超时。节点的公网 IP 由服务端从连接的来源地址记（步骤 05）。
+- 采集不到的字符串字段填 `"unknown"`（LXC / OpenVZ 上 `host.Info()` 有些字段就是空的），数值字段填 0，不会因为单项失败整条消息缺席。
+
+### 1.4 `metrics`（agent → server）
+
+```json
+{
+  "type": "metrics", "ts": 1789199726,
+  "cpu": 11.26, "mem_used": 1996000000, "swap_used": 0, "disk_used": 22800000000,
+  "load": [0.47, 0.40, 0.35],
+  "net": {"rx_total": 119000000000, "tx_total": 119000000000, "rx_rate": 15530, "tx_rate": 16502},
+  "tcp": 86, "udp": 12, "procs": 143, "uptime": 1555200
+}
+```
+
+| 字段 | 含义 |
+|---|---|
+| `cpu` | 0–100，两次 `cpu.Times` 差值算出（`(总增量 − idle − iowait) / 总增量`）。`guest` / `guest_nice` 不单独计入，Linux 已经把它们记在 `user` / `nice` 里 |
+| `mem_used` / `swap_used` / `disk_used` | 字节。磁盘按配置的 `disk_mounts` 求和，同一设备只算一次，10 秒缓存 |
+| `load` | 1 / 5 / 15 分钟负载 |
+| `net.rx_total` / `tx_total` | 网卡累计字节，过滤掉 `interfaces.exclude` 里的网卡 |
+| `net.rx_rate` / `tx_rate` | 字节每秒，按两次采样的差值除以实际间隔。计数器回绕或网卡被重建（新值 < 旧值）时记 0，不让曲线炸尖峰 |
+| `tcp` / `udp` | `/proc/net/sockstat` 与 `sockstat6` 里的 `inuse` 之和（不是 `net.Connections`，那要遍历 `/proc/*/fd`，连接数上万时要几百毫秒） |
+| `procs` | `/proc` 下的纯数字目录数 |
+| `uptime` | 秒 |
+
+**第一帧的 `cpu` 与两个 `*_rate` 恒为 0**：差值算法要两次采样才有值，秒级上报下只影响连上后的第一条。
+
+### 1.5 `config`（server → agent）
+
+```json
+{"type": "config", "report_interval": 1,
+ "ping_tasks": [{"id": 1, "name": "深圳电信", "target": "202.96.134.33", "kind": "icmp", "interval": 60}]}
+```
+
+- `report_interval` 单位秒，agent 侧夹取到 1–60；为 0 表示不改。收到后立即生效（下一帧按新间隔）。
+- `ping_tasks` 步骤 09 才执行，本版本只记一条日志。
+
+### 1.6 心跳与重连
+
+| 项 | 值 |
+|---|---|
+| 心跳 | agent 每 20 秒发一次 WebSocket ping，10 秒内没回就断开重连（NAT 超时、对端假死都靠它发现） |
+| 重连退避 | 1s → 2s → 4s … 60s 封顶 |
+| 退避归零 | 连接**活过 30 秒**才算连上，退避才归零。否则遇到「能连上但立刻被关」会变成每秒重连一次 |
+| 读上限 | 单帧 1 MiB |
+| 写超时 | 5 秒 |
+
+采集与连接是解耦的：采集协程按间隔一直采，没连上就丢弃当前这一帧（累计流量在网卡计数器里，断线期间的量不会丢）。
 
 ## 2. WebSocket · 浏览器 ↔ server
 

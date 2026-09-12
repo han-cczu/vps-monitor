@@ -33,6 +33,8 @@ build-agent: ## 交叉编译 agent 到 dist/agent/（linux amd64 + arm64）
 		-o $(AGENT_DIST)/vps-agent-linux-amd64 ./agent/cmd/agent
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$(LDFLAGS)" \
 		-o $(AGENT_DIST)/vps-agent-linux-arm64 ./agent/cmd/agent
+	cp agent/install.sh agent/uninstall.sh $(AGENT_DIST)/
+	@echo "把 $(AGENT_DIST)/ 下的文件放进 {VM_DATA_DIR}/agent/，面板的一键安装命令才有东西可下"
 
 build-web: ## 构建前端并放到 server/web/dist 供 go:embed 取用
 	cd web && npm run build
