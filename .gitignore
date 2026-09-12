@@ -1,0 +1,34 @@
+# Go
+/dist/
+*.exe
+*.test
+*.out
+
+# Node
+node_modules/
+.npm/
+*.log
+npm-debug.log*
+
+# 前端构建产物（由 make build-web 生成后喂给 go:embed）
+/web/dist/
+/server/web/dist/*
+!/server/web/dist/.gitkeep
+!/server/web/dist/index.html
+
+# 运行时数据
+/data/
+*.db
+*.db-shm
+*.db-wal
+
+# 本地环境
+.env
+.env.local
+*.local
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

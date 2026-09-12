@@ -1,0 +1,1180 @@
+<title>VPS 监控与节点管理设计方案</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+<style>
+  :root {
+    --bg: #F4F6F9;
+    --surface: #FFFFFF;
+    --ink: #1A2230;
+    --muted: #5E6B7A;
+    --line: #D8DFE7;
+    --accent: #0B6E8F;
+    --accent-ink: #085A75;
+    --accent-soft: #E1F0F5;
+    --code-bg: #EDF1F5;
+    --good: #2A8C55;
+    --good-soft: #E4F3EA;
+    --sans: "IBM Plex Sans", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+    --mono: "IBM Plex Mono", "SFMono-Regular", Consolas, "Noto Sans Mono CJK SC", "Microsoft YaHei", monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E1319;
+      --surface: #151B22;
+      --ink: #E3E9EF;
+      --muted: #94A0AD;
+      --line: #263039;
+      --accent: #5FC4DC;
+      --accent-ink: #8AD6E8;
+      --accent-soft: #102C35;
+      --code-bg: #1A212A;
+      --good: #4CC38A;
+      --good-soft: #12301F;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E1319;
+    --surface: #151B22;
+    --ink: #E3E9EF;
+    --muted: #94A0AD;
+    --line: #263039;
+    --accent: #5FC4DC;
+    --accent-ink: #8AD6E8;
+    --accent-soft: #102C35;
+    --code-bg: #1A212A;
+    --good: #4CC38A;
+    --good-soft: #12301F;
+    color-scheme: dark;
+  }
+
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.8;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent-ink); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding-inline: 24px; padding-block: 0 72px; }
+
+  /* 抬头 */
+  .masthead { padding-block: 44px 28px; border-bottom: 1px solid var(--line); margin-bottom: 36px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 14px;
+  }
+  .masthead h1 {
+    font-size: clamp(26px, 3.2vw, 34px); line-height: 1.25; font-weight: 600; letter-spacing: -0.01em;
+    margin: 0 0 18px; text-wrap: balance;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+  .chips li {
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.5; color: var(--ink);
+    border: 1px solid var(--line); background: var(--surface); border-radius: 4px; padding: 3px 9px;
+  }
+  .chips li.status { color: var(--good); border-color: transparent; background: var(--good-soft); font-weight: 500; }
+
+  /* 布局：宽屏左侧目录，窄屏折叠目录 */
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .toc { display: none; }
+  .toc-m { display: block; border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 6px 14px; }
+  .toc-m summary { cursor: pointer; font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 6px 0; }
+  @media (min-width: 1080px) {
+    .layout { grid-template-columns: 236px minmax(0, 780px); gap: 60px; }
+    .toc { display: block; position: sticky; top: 24px; align-self: start; max-height: calc(100vh - 48px); overflow: auto; padding-right: 6px; }
+    .toc-m { display: none; }
+  }
+  .toc-title { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; padding-left: 12px; }
+  .toc ul, .toc-m ul { list-style: none; margin: 0; padding: 0; }
+  .toc a, .toc-m a {
+    display: block; padding: 4px 10px; color: var(--muted); text-decoration: none;
+    border-left: 2px solid transparent; font-size: 13.5px; line-height: 1.5;
+  }
+  .toc li.h3 a, .toc-m li.h3 a { font-size: 12.5px; padding-left: 24px; }
+  .toc a:hover, .toc-m a:hover { color: var(--ink); }
+  .toc a.active { color: var(--accent-ink); border-left-color: var(--accent); }
+  .toc-m ul { padding-block: 4px 10px; }
+
+  /* 正文（由 Markdown 渲染） */
+  #doc > h1 { display: none; }
+  #doc hr { display: none; }
+  #doc h2 {
+    font-size: 21px; line-height: 1.35; font-weight: 600; letter-spacing: -0.005em;
+    margin: 44px 0 16px; padding-top: 26px; border-top: 1px solid var(--line);
+    scroll-margin-top: 20px; text-wrap: balance;
+  }
+  #doc h2:first-of-type { border-top: 0; padding-top: 0; margin-top: 8px; }
+  #doc h3 { font-size: 17px; line-height: 1.4; font-weight: 600; margin: 30px 0 10px; scroll-margin-top: 20px; }
+  #doc p { margin: 0 0 14px; }
+  #doc ul, #doc ol { margin: 0 0 16px; padding-left: 1.5em; }
+  #doc li { margin: 4px 0; }
+  #doc li > ul, #doc li > ol { margin-top: 4px; margin-bottom: 4px; }
+  #doc strong { font-weight: 600; }
+  #doc blockquote {
+    margin: 0 0 22px; padding: 12px 18px; color: var(--ink);
+    border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 4px 4px 0;
+  }
+  #doc blockquote p { margin: 0; }
+  #doc blockquote p + p { margin-top: 8px; }
+  #doc code {
+    font-family: var(--mono); font-size: 0.88em; background: var(--code-bg);
+    border-radius: 4px; padding: 1px 5px;
+  }
+  #doc pre {
+    margin: 0 0 18px; padding: 14px 16px; background: var(--code-bg); border: 1px solid var(--line);
+    border-radius: 6px; overflow-x: auto; line-height: 1.6;
+  }
+  #doc pre code { background: none; padding: 0; font-size: 13px; }
+  .table-wrap { margin: 0 0 20px; overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+  #doc table { border-collapse: collapse; width: 100%; font-size: 14px; line-height: 1.6; font-variant-numeric: tabular-nums; }
+  #doc th, #doc td { padding: 9px 12px; text-align: left; vertical-align: top; }
+  #doc th { background: var(--accent-soft); font-weight: 600; white-space: nowrap; }
+  #doc tbody tr + tr td { border-top: 1px solid var(--line); }
+  #doc td code, #doc th code { white-space: nowrap; }
+  #doc pre.raw { white-space: pre-wrap; }
+
+  .foot { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+  @media (max-width: 600px) {
+    body { font-size: 15px; }
+    .masthead { padding-block: 32px 22px; }
+    #doc h2 { font-size: 19px; }
+  }
+  @media print {
+    .toc, .toc-m { display: none; }
+    .layout { grid-template-columns: 1fr; }
+    #doc pre, .table-wrap { break-inside: avoid; }
+  }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <p class="eyebrow">Design Spec · v1.0 · 2026-09-12</p>
+    <h1>VPS 监控与节点管理系统</h1>
+    <ul class="chips">
+      <li class="status">设计已确认 · 待开工</li>
+      <li>自研 · Go + React</li>
+      <li>Minimal starter 7.7</li>
+      <li>sing-box 单核心 · 自编译</li>
+      <li>VLESS-Reality · SS2022 · Hysteria2 · TUIC</li>
+      <li>Clash 订阅</li>
+      <li>十几台节点 · 私有面板</li>
+    </ul>
+  </header>
+
+  <div class="layout">
+    <nav class="toc" aria-label="目录">
+      <p class="toc-title">目录</p>
+      <ul id="toc-list"></ul>
+    </nav>
+    <main>
+      <details class="toc-m">
+        <summary>目录</summary>
+        <ul id="toc-list-m"></ul>
+      </details>
+      <article id="doc"></article>
+      <noscript><p>这份文档需要启用 JavaScript 才能渲染；源文件在仓库 docs/设计方案.md。</p></noscript>
+      <p class="foot">文档源：vps-monitor/docs/设计方案.md · 以仓库内 Markdown 为准</p>
+    </main>
+  </div>
+</div>
+
+<script type="text/markdown" id="src">
+# VPS 监控与节点管理系统 · 设计方案
+
+> 版本 v1.0 · 2026-09-12 · 状态：设计已确认，待开工
+>
+> 一句话：一个自托管面板，左手监控十几台 VPS 的实时状态、账单与流量，右手在这些 VPS 上集中部署 sing-box 节点、管理订阅用户与限额，并输出一个聚合所有节点的 Clash 订阅。
+
+---
+
+## 0. 决策记录
+
+已经拍板的事，后文不再讨论。
+
+| # | 事项 | 结论 | 备注 |
+|---|---|---|---|
+| 1 | 自研还是部署现成方案 | **自研** | 卡片视觉参考 Komari 默认主题；节点管理能力参考 3x-ui，改为集中式 |
+| 2 | 语言与框架 | **Agent Go、Server Go、前端 React** | 前端基于 Minimal UI starter v7.7.0（MUI 9） |
+| 3 | 规模 | **十几台节点，单管理员** | SQLite 足够，不引入外部数据库 |
+| 4 | 面板定位 | **私有，整站登录墙** | 仅订阅接口与 agent 接入免登录 |
+| 5 | 代理核心 | **sing-box 单核心，自编译** | 官方 release 不含 `with_v2ray_api`，每用户统计依赖它 |
+| 6 | 协议 | **VLESS+Reality、Shadowsocks 2022、Hysteria2、TUIC v5** | 不做需要域名/证书的协议（VMess、Trojan、WS/gRPC+TLS） |
+| 7 | 客户端 | **Clash（mihomo 内核）** | 订阅默认输出 Clash YAML；另提供 sing-box JSON 与 URI 列表 |
+| 8 | 用户模型 | **订阅用户持有凭据，按人限总流量与到期，跨节点汇总** | 不做限速（sing-box 没有按用户限速） |
+| 9 | 明确不做 | 远程终端/任意命令执行、多管理员、Windows 节点、网站可用性监控 | 需要时另起版本 |
+
+---
+
+## 1. 目标与范围
+
+### 1.1 目标
+
+1. **监控**：十几台 VPS 的实时状态（CPU、内存、磁盘、负载、网速、累计流量、三网延迟）、历史曲线、账单与到期倒计时、流量套餐余量、告警通知。
+2. **节点管理**：在这些 VPS 上一键安装 sing-box，集中管理入站协议；管理"订阅用户"（人）及其流量限额与到期；输出聚合订阅——一个链接包含该用户在所有节点上的全部入站。
+
+### 1.2 范围外
+
+- 远程终端、任意命令执行（agent 只接受白名单指令，见 5.4）
+- 需要域名与证书的协议
+- 按用户限速、按用户限设备数
+- 多管理员、多租户、注册
+- Windows 节点 agent（面板在 Windows 上开发没问题，agent 只出 Linux 版）
+
+### 1.3 参考对象
+
+- **Komari**：卡片信息结构（V4/V6 标签、四项资源、上下行与累计流量、剩余流量进度条、三网延迟方块、在线/到期天数、带宽与价格标签）。其"已用流量 = max(出站, 入站)"与本方案默认模式一致。
+- **3x-ui**：入站/客户端/限额/到期/订阅这套功能，但 3x-ui 是每台机一个面板，本方案是一个面板管所有节点。
+
+---
+
+## 2. 总体架构
+
+### 2.1 组件
+
+```
+ 每台 VPS（十几台）                        面板主机（建议放香港节点）                           浏览器（仅管理员）
+┌──────────────────────────┐           ┌────────────────────────────────────────────┐
+│ vps-agent（Go 单文件，root）│           │ vps-server（Go 单文件，内嵌前端）              │
+│  ├ collector  秒级采集     │ ─WSS 上报─▶│  ├ hub/agent    认证、心跳、内存最新状态        │ ─WSS 每秒快照─▶ 监控总览
+│  ├ ping       三网延迟     │ ◀─下发配置─│  ├ hub/client   每秒广播给浏览器               │ ◀─REST────────  详情页 / 管理页
+│  └ corectl    管 sing-box  │           │  ├ store        SQLite（配置 + 时序聚合）       │
+│        │                  │           │  ├ traffic      节点流量结算（账期、模式）        │
+│  sing-box（自编译）        │           │  ├ proxy        渲染 / 密钥 / 证书 / 订阅 / 限额 │ ◀─GET /sub/{token}─ Clash 客户端
+│   入站 vless·ss·hy2·tuic   │           │  ├ corefiles    托管 sing-box 二进制            │
+│   v2ray_api 127.0.0.1:10085│           │  ├ alert        告警规则与通知                  │ ──▶ Telegram / Webhook
+└──────────────────────────┘           │  └ auth         JWT + TOTP、审计               │
+                                       └────────────────────────────────────────────┘
+```
+
+三个独立部分：**Agent（采集 + 受控执行）→ Server（汇聚、存储、渲染、推送）→ Web（展示、管理）**。Agent 主动出站连接 Server，VPS 不需要开任何管理端口；只有 sing-box 的入站端口按需对外开放。
+
+### 2.2 三条数据流
+
+1. **监控流**：agent 每秒采集 → WSS 上报 → Server 更新内存里的"最新状态" → 每秒序列化一次广播给所有浏览器；同时在内存按分钟聚合，每分钟落库一行。
+2. **控制流**：管理员改入站/用户 → Server 重新渲染该节点的"期望状态"（sing-box 版本 + 完整 `config.json`，带修订号）→ 通过同一条 WSS 下发 → agent 校验、应用、失败回滚 → 上报实际状态。
+3. **订阅流**：Clash 客户端定时 `GET /sub/{token}` → Server 按该用户的分配关系生成 YAML，并在响应头带上用量与到期。
+
+### 2.3 部署拓扑要点
+
+- 面板放**香港**节点：国内、海外节点连它都没问题。放深圳阿里云则域名走 80/443 需 ICP 备案。
+- Hysteria2 / TUIC 是 **UDP/QUIC**，云安全组与主机防火墙都要放 UDP；国内出口对 QUIC 经常限速，深圳节点建议只开 Reality 和 SS。
+- 面板同时是 sing-box 二进制的分发点，国内节点不需要访问 GitHub。
+
+---
+
+## 3. 技术选型
+
+| 层 | 选择 | 理由 |
+|---|---|---|
+| Agent | Go，`CGO_ENABLED=0` 静态编译 linux/amd64 + arm64；`gopsutil` 采集、`pro-bing` ICMP、`coder/websocket` | 单文件、零依赖、常驻 10–20 MB；十几台机器上装 Python 依赖是灾难 |
+| Server | Go；`chi` 路由、`gorilla/websocket`、`modernc.org/sqlite`（纯 Go 驱动，WAL 模式） | 单二进制内嵌前端；十几台节点每天几万行，SQLite 绰绰有余 |
+| 时序存储 | SQLite 分钟表 + 小时表 | 超过百台再换 VictoriaMetrics，store 层留接口 |
+| 前端 | Minimal UI **starter** v7.7.0：React 19、MUI 9、react-router 7、SWR、react-hook-form + zod、ApexCharts、framer-motion | 后台壳（侧栏、深色模式、表格、表单、登录）现成；缺的组件从完整版拷 |
+| 代理核心 | sing-box，钉住一个版本，自编译（含 `with_v2ray_api`） | 一个核心覆盖四个协议；每用户流量统计需要 V2Ray API |
+| 反向代理 | Caddy | 自动 HTTPS，WebSocket 直通 |
+| 部署 | Docker Compose（server + caddy）；agent 用 systemd | |
+| 通知 | Telegram Bot、通用 Webhook | |
+
+---
+
+## 4. 功能规格
+
+### 4.1 监控总览（卡片网格）
+
+每台节点一张卡，宽屏 4 列、平板 2 列、手机 1 列。字段与来源：
+
+| 卡片元素 | 数据 | 来源 |
+|---|---|---|
+| 国旗、名称 | `region`、`name` | 后台手填 |
+| V4 / V6 标签 | 是否有 IPv4 / IPv6 出网 | agent 启动时分别用 v4、v6 连一次外网探测 |
+| CPU %、核数 | `cpu`、`cores` | agent |
+| 内存 %、已用/总量 | `mem_used`、`mem_total` | agent |
+| 磁盘 %、已用/总量 | 根分区（或指定挂载点） | agent |
+| 负载 | `load1` | agent |
+| 上行 / 下行速率 + "实时"小折线 | 网卡计数器差值 ÷ 秒 | agent 算速率；前端本地保留最近 30 个点画线 |
+| 出站 / 入站累计 | 网卡累计字节 | agent 上报累计值，Server 算差值累加到账期 |
+| 剩余流量 + 进度条 | 套餐上限、重置日、统计模式 | 后台配置 + Server 结算（4.9） |
+| 三网延迟、丢包、方块 | 到深圳电信/联通/移动目标的 ping | 后台配置目标，agent 定时执行（4.4） |
+| 在线 N 天 | `uptime` | agent |
+| 到期 N 天 | `expire_at` | 后台手填（4.8） |
+| 带宽、价格标签 | `bandwidth_label`、`price`、`cycle` | 后台手填 |
+
+页面行为：顶部汇总条（在线/总数、总上下行速率、本月总流量、7 天内到期数、超额停用的订阅用户数）；按分组/标签筛选；按名称/CPU/流量/到期排序；搜索；离线节点灰化并显示离线时长；点击进入详情。
+
+### 4.2 节点详情
+
+主机信息（系统、内核、架构、CPU 型号、agent 版本、公网 IP、开机时间）；曲线：CPU、内存、磁盘、上下行速率、TCP/UDP 连接数；每个 ping 任务的延迟曲线与丢包率。时间范围 1h / 24h / 7d / 30d：1h 与 24h 读分钟表，7d 与 30d 读小时表。
+
+### 4.3 节点管理
+
+| 分组 | 字段 |
+|---|---|
+| 基础 | 名称、地区（国家码）、分组、标签、排序、备注 |
+| 接入 | agent token（创建时显示一次，可重置）、一键安装命令（自动拼好） |
+| 公网地址 | `public_host`：订阅里使用的 IP 或域名 |
+| 账单 | 价格、货币、周期（月/季/年/一次性）、到期日、到期自动顺延 |
+| 流量套餐 | 上限（0 = 不限）、每月重置日、统计模式（出站 / 入站 / 出+入 / max，默认 max）、带宽标签 |
+
+### 4.4 Ping 任务（三网延迟）
+
+全局任务表：名称、目标（IP 或域名）、类型（icmp / tcp）、间隔（默认 60 s）、作用节点（全部或指定）。预置三条：深圳电信、深圳联通、深圳移动，目标可用运营商在深圳的公共 DNS 之类的地址（例如电信 `202.96.134.33`、联通 `210.21.196.6`、移动 `211.136.192.6`），**以实测能通为准**。卡片展示每任务最近 30 次结果：方块按延迟着色（小于 100 ms 绿、小于 200 ms 黄、超时红），丢包率取同一窗口。
+
+### 4.5 代理节点管理（每台节点一页）
+
+**核心状态卡**：安装状态、已安装版本 vs 面板托管版本、运行状态、已应用修订号、防火墙类型、最后错误。按钮：安装 / 升级、重启、查看日志（最近 200 行，只读）。
+
+**入站列表**：每行一个入站——协议、端口、备注、启用开关、当前用户数、本期流量。四种协议各自的表单：
+
+| 协议 | 表单字段 | 自动生成 |
+|---|---|---|
+| VLESS + Reality | 端口（默认 443/TCP）、握手目标（默认 `www.microsoft.com:443`）、short_id 列表 | x25519 密钥对、short_id |
+| Shadowsocks 2022 | 端口（TCP+UDP）、加密（`2022-blake3-aes-128-gcm`） | 服务端 PSK |
+| Hysteria2 | 端口（UDP）、混淆 salamander（默认开）、服务端上/下行带宽（可空）、忽略客户端带宽 | 混淆密码 |
+| TUIC v5 | 端口（UDP）、拥塞控制（默认 bbr）、零 RTT（默认关） | — |
+
+**证书**：每个节点一张自签证书，Hysteria2 与 TUIC 共用；显示 SHA256 指纹与伪装 SNI（默认 `www.bing.com`）；可重新生成——重新生成会让旧订阅里的指纹失效，客户端需要刷新订阅。
+
+**高级**：节点级附加 JSON（`outbounds`、`route`），合并进渲染结果。用途是中转链路（深圳入口 → 海外出口），二期做 UI，一期留字段。
+
+### 4.6 订阅用户与限额
+
+"订阅用户"是一个人（或一组设备），凭据挂在人身上，各节点通用。
+
+| 分组 | 字段 |
+|---|---|
+| 基础 | 名称、备注、启用 |
+| 凭据 | `uuid`（VLESS、TUIC）、`password`（Hysteria2、TUIC）、`ss_user_key`（SS2022 用户 PSK）——自动生成，可重生成 |
+| 限额 | 总流量上限（0 = 不限）、重置日（每月 N 号 / 不重置）、到期时间 |
+| 分配 | 入站多选，UI 提供"全选某节点" |
+| 订阅 | `sub_token`（可重置） |
+
+列表页：用量进度条（已用 / 上限）、到期倒计时、状态（正常 / 超额停用 / 到期停用 / 手动停用）、分配节点数；按钮：订阅链接（三种格式）、二维码、清零用量、重置 token。详情页：按节点分账表、最近 30 天用量曲线。
+
+规则：
+
+- `used ≥ limit` → 自动停用；到重置日清零并自动恢复
+- `now > expire_at` → 停用；延长到期时间即恢复
+- 手动停用优先级最高，自动规则不会把它恢复
+- 停用 = 该用户从所有已分配入站的 `users[]` 里移除并下发，客户端立刻连不上
+
+### 4.7 订阅输出
+
+`GET /sub/{sub_token}?format=clash | clash-provider | singbox | uri`，默认 `clash`。
+
+| 格式 | 内容 | 用途 |
+|---|---|---|
+| `clash` | 完整配置：proxies + proxy-groups + rules。规则模板在后台可编辑，`{{PROXIES}}` 与 `{{PROXY_NAMES}}` 占位 | Clash 直接导入 |
+| `clash-provider` | 只有 `proxies:` 列表 | 作为 proxy-provider 引入自己的规则配置 |
+| `singbox` | outbounds JSON，证书 PEM 内嵌，客户端做正常校验 | sing-box 系客户端 |
+| `uri` | base64 的 `vless:// ss:// hysteria2:// tuic://` 列表 | Shadowrocket 等 |
+
+响应头：`subscription-userinfo: upload=…; download=…; total=…; expire=…`（Clash 客户端据此显示流量与到期）、`profile-update-interval: 24`、`content-disposition: attachment; filename=…`。
+
+代理命名：`{节点名} · {协议}`，如 `香港-cst-01 · HY2`。节点离线也照常输出，客户端自动测速会跳过。
+
+**客户端必须是 Meta/mihomo 内核**（Clash Verge Rev、Clash Meta for Android、ClashX Meta、mihomo party 等）。原版 Clash 已停更，不支持 Hysteria2、TUIC、Reality。
+
+### 4.8 账单与到期
+
+价格、货币、周期、到期日；到期自动顺延（年付到期自动 +1 年）；到期前 7 / 3 / 1 天提醒。卡片显示"到期 N 天"和"¥99/年"标签。
+
+### 4.9 节点流量套餐
+
+`limit`、`reset_day`、`mode`（out / in / sum / max，默认 max）。卡片显示剩余与进度条，`limit = 0` 显示 ∞。用量到 80% / 90% / 100% 提醒。结算规则见 6.5。
+
+### 4.10 告警
+
+| 规则 | 默认阈值 |
+|---|---|
+| 节点离线 | 持续 3 分钟 |
+| CPU / 内存 / 磁盘 | 90%，持续 10 分钟 |
+| 节点流量套餐 | 80% / 90% / 100% |
+| 节点到期 | 提前 7 / 3 / 1 天 |
+| ping 丢包 | 某任务 30 次窗口内丢包 ≥ 30% |
+| 订阅用户用量 | 80% / 100%（通知管理员） |
+| sing-box 应用失败 / 进程异常退出 | 立即 |
+
+渠道：Telegram Bot、通用 Webhook。同一事件冷却 30 分钟；恢复时发恢复通知。
+
+### 4.11 系统与安全设置
+
+管理员账号密码、TOTP 开关、站点标题、时区（默认 Asia/Shanghai）、流量单位（1000 或 1024）、ping 数据保留天数、sing-box 托管版本管理（上传 CI 产物、设为当前版本）、审计日志查看。
+
+---
+
+## 5. Agent 设计
+
+### 5.1 进程与文件
+
+| 项 | 路径 |
+|---|---|
+| agent 二进制 | `/usr/local/bin/vps-agent` |
+| agent 配置 | `/etc/vps-agent/config.yaml`（server、token、可选网卡白名单/挂载点） |
+| agent 数据 | `/var/lib/vps-agent/`（下载缓存、上次已应用修订号） |
+| systemd | `vps-agent.service`、`sing-box.service` |
+| sing-box 二进制 | `/usr/local/bin/sing-box` |
+| sing-box 配置 | `/etc/sing-box/config.json`、`config.json.bak`（上一份可用配置） |
+| sing-box 日志 | `/var/log/sing-box/box.log` |
+
+agent 以 root 运行（要写 sing-box 配置、重启服务、放行端口、发 ICMP），但**不监听任何端口**。
+
+### 5.2 采集项
+
+| 类别 | 频率 | 内容 |
+|---|---|---|
+| 静态 | 连上时一次，之后每 5 分钟 | hostname、OS、内核、架构、CPU 型号/核数、内存/磁盘总量、开机时间、agent 版本、IPv4/IPv6 可用性、公网 IP |
+| 动态 | 每 1 秒 | CPU%、内存/swap 已用、磁盘已用、load 1/5/15、网卡累计收发字节与速率、TCP/UDP 连接数、进程数、uptime |
+| ping | 按任务间隔（默认 60 s） | 每目标一次 ICMP（或 TCP 连接耗时），超时记丢包 |
+| sing-box 统计 | 每 10 秒 | 每入站、每用户的 uplink/downlink **增量**（5.4） |
+
+注意事项：网卡排除 `lo`、`docker*`、`veth*`、`br-*`、`tun*`、`tailscale*`，否则流量翻倍；累计字节用自开机以来的计数器，重启归零由 Server 处理（6.5）；CPU% 用 `/proc/stat` 两次采样差值。
+
+### 5.3 连接
+
+- WSS 到 `wss://面板域名/api/agent/ws`，握手头 `Authorization: Bearer {agent_token}`、`X-Agent-Version`
+- 连上先发 `hello`（静态信息 + 当前已应用修订号 + sing-box 状态），Server 回 `config`（上报间隔、ping 任务）并在需要时补发 `core.apply` 对齐期望状态
+- 每 1 秒一条 `metrics`；Server 15 秒没收到即判离线
+- 断线指数退避重连（1 s → 60 s），不缓存离线期间的秒级数据（累计流量靠计数器，不受影响）
+
+### 5.4 corectl：sing-box 受控执行器
+
+**只接受这几种消息，没有"执行命令"**：
+
+| 消息 | 动作 |
+|---|---|
+| `core.action install` | 从面板下载指定版本二进制，校验 sha256，安装，写 unit |
+| `core.apply` | 应用一份完整配置（含修订号、sha256） |
+| `core.action start / stop / restart` | 操作 `sing-box.service` |
+| `core.logs` | 回传日志尾部 |
+
+**安装流程**：`GET {面板}/api/agent/corefiles/{文件名}`（带 agent token）→ 校验 sha256 与消息中一致 → 写入 `/usr/local/bin/sing-box.new` → `sing-box.new version` 能跑 → 原子替换 → 写 `sing-box.service`（`ExecStart=/usr/local/bin/sing-box run -c /etc/sing-box/config.json`，`Restart=on-failure`，`LimitNOFILE=infinity`）→ `daemon-reload`、`enable` → 上报 `core.state`。
+
+**应用流程**：
+
+1. 修订号 ≤ 已应用且 sha256 相同且进程在跑 → 直接回报当前状态，不动
+2. 写 `/etc/sing-box/config.json.new`
+3. `sing-box check -c config.json.new`，失败 → 上报错误（带 stderr），结束
+4. 当前配置备份为 `config.json.bak`，`.new` 原子替换为 `config.json`
+5. `systemctl restart sing-box`
+6. 5 秒内检查：`is-active`；配置里声明的端口是否在监听（读 `/proc/net/tcp*`、`/proc/net/udp*`）
+7. 成功 → 记录已应用修订号，上报 `core.state`；失败 → 恢复 `.bak`，重启，上报错误。**回滚也失败**时上报 `running=false`，由面板告警
+
+**端口放行**：应用前检测 `ufw`（active 才动）或 `firewalld`，放行配置中声明的 TCP/UDP 端口；两者都没有则不做，只在 `core.state.firewall` 里报 `none`，前端提示"请在云控制台放行"。
+
+**统计流程**：gRPC 连 `127.0.0.1:10085`，sing-box 自己的 `experimental.v2rayapi.StatsService`（proto 从 sing-box 仓库 `experimental/v2rayapi/stats.proto` 拷贝后自行生成，避免把整个 sing-box 作为依赖编进 agent），每 10 秒 `QueryStats(pattern="", reset=true)`，解析 `user>>>sub-1>>>traffic>>>uplink`、`inbound>>>vless-443>>>traffic>>>downlink` 这类计数器名。`uplink` = 客户端上传，`downlink` = 客户端下载。
+
+### 5.5 安装与卸载
+
+```
+curl -fsSL https://面板域名/install.sh | bash -s -- --server wss://面板域名 --token {agent_token}
+```
+
+脚本：检测架构 → 从面板下载 `vps-agent-linux-{arch}` → 写 `/etc/vps-agent/config.yaml` → 写 `vps-agent.service`（`Restart=always`）→ `enable --now` → 打印状态。`uninstall.sh` 反向执行，可选 `--purge-core` 一并卸掉 sing-box。
+
+---
+
+## 6. Server 设计
+
+### 6.1 模块与目录
+
+```
+server/
+├── cmd/server/main.go
+└── internal/
+    ├── hub/        agent.go（Agent Hub）、client.go（Client Hub）、state.go（最新状态）
+    ├── api/        REST 路由与 handler，按资源分文件
+    ├── auth/       密码、JWT、TOTP、登录限速
+    ├── store/      SQLite 访问、迁移（golang-migrate 或 goose）、各表 repo
+    ├── metrics/    分钟聚合、降采样、保留清理
+    ├── traffic/    节点流量结算（账期、模式）
+    ├── ping/       任务下发、结果存储
+    ├── proxy/
+    │   ├── render/   sing-box 配置渲染（第 9 节）
+    │   ├── keys/     uuid、x25519、PSK、密码生成
+    │   ├── certs/    自签证书
+    │   ├── sub/      订阅输出（第 10 节）
+    │   ├── enforce/  限额/到期检查、变更合并下发
+    │   └── state.go  节点核心状态、修订
+    ├── corefiles/  sing-box 二进制托管
+    ├── alert/      规则评估、通知渠道
+    ├── audit/      审计日志
+    └── web/        embed.FS，前端构建产物
+```
+
+### 6.2 Agent Hub 与在线判定
+
+按 token 哈希查节点；一个节点同时只允许一条连接（新连接踢旧连接）；维护 `map[serverID]*State`（最新 metrics、host info、ping 最近值、core 状态）。每 5 秒扫一遍 `last_seen`，超过 15 秒标离线并广播；离线持续达到告警阈值再发通知，避免抖动。
+
+### 6.3 Client Hub 与快照
+
+浏览器 WSS `/api/ws`，建连后 5 秒内必须发 `{type:"auth", token}`（JWT），否则断开。一个定时器每秒把全部节点状态序列化**一次**广播（十几台约 10 KB，开 permessage-deflate）。ping 历史不进快照，前端每 60 秒单独拉。
+
+### 6.4 时序聚合与保留
+
+秒级数据不落库。内存里按节点按分钟聚合：cpu avg/max、mem_used avg、disk_used last、load1 avg、rx/tx rate avg/max、rx/tx total last、连接数 avg、进程数 last，每分钟写一行 `metrics_minute`。每小时任务把上一小时的分钟行聚合到 `metrics_hour`。保留：分钟 7 天，小时 365 天，ping 结果 30 天（可调）。
+
+### 6.5 节点流量结算
+
+每条 `metrics` 携带 `rx_total / tx_total`：
+
+- `delta = new − last`；若 `new < last`（重启归零）则 `delta = new`
+- delta 累加到当前账期 `traffic_periods` 的 `in_bytes / out_bytes`
+- 每天 00:00（面板时区）检查：今天是该节点 `reset_day` → 关闭当前账期，开新账期。重置日为 29–31 而当月没有该日时取当月最后一天
+- 已用 = 按 `mode` 取：`out`、`in`、`sum`、`max(in, out)`；剩余 = `limit − 已用`
+
+### 6.6 proxy 子系统
+
+**render**：由节点的 inbounds + 分配到这些 inbounds 的启用用户 + 节点证书 + 高级 JSON → 完整 `config.json`，计算 sha256，修订号 +1，存 `config_revisions`。规则见第 9 节。
+
+**keys**：
+
+| 用途 | 生成 |
+|---|---|
+| VLESS / TUIC uuid | UUID v4 |
+| Reality | x25519 私钥/公钥（`golang.org/x/crypto/curve25519`）；short_id 8 字节随机 hex |
+| SS2022 | 服务端 PSK、用户 PSK：16 字节随机，base64 |
+| Hysteria2 / TUIC 密码 | 24 字节随机，base64url |
+| 混淆密码 | 同上 |
+
+**certs**：每节点一张自签证书——ECDSA P-256，有效期 3650 天，CN 与 SAN 为伪装 SNI；存 PEM 与 DER 的 SHA256 指纹（`AB:CD:…` 形式）。
+
+**sub**：见第 10 节。
+
+**enforce**：每 60 秒跑一次——汇总 `subscriber_traffic` 到 `traffic_used`，判断超额与到期，改状态，标记受影响节点；节点级变更合并：同一节点 5 秒内的多次改动合成一次渲染下发，一个节点同时只有一次 apply 在飞；失败按 10 s、30 s、60 s 重试三次，仍失败则告警。
+
+**corefiles**：CI 产物放 `{data}/corefiles/sing-box-{version}-linux-{arch}` 及 `.sha256`；后台"设为当前版本"；`GET /api/agent/corefiles/{name}` 需 agent token。
+
+### 6.7 认证
+
+- 密码 argon2id；JWT HS256，有效 12 小时，前端存 sessionStorage（Minimal starter 默认）
+- 登录限速：同 IP 15 分钟内 5 次失败即锁 15 分钟
+- TOTP 可选：开启后 `sign-in` 返回 `{ mfaRequired: true, ticket }`，再 `POST /api/auth/mfa { ticket, code }` 换 `accessToken`。starter 的登录页要加这一步
+- 所有 `/api/**` 除 `auth/sign-in`、`auth/mfa`、`agent/**`、`/sub/**` 外都要 JWT
+
+### 6.8 定时任务一览
+
+| 频率 | 任务 |
+|---|---|
+| 1 s | 浏览器快照广播 |
+| 5 s | 离线扫描 |
+| 60 s | 分钟聚合落库；订阅用户用量汇总与限额/到期检查；节点流量统计落库 |
+| 60 s | 告警规则评估（含冷却与恢复） |
+| 1 h | 小时降采样；保留期清理 |
+| 每日 00:00 | 节点账期与订阅用户账期滚动；到期自动顺延 |
+| 每日 09:00 | 到期提醒汇总 |
+
+---
+
+## 7. 通信协议
+
+全部 JSON，字段 `type` 区分。时间戳为 Unix 秒。
+
+### 7.1 Agent → Server
+
+```json
+{"type":"hello","version":"0.1.0","applied_revision":17,
+ "host":{"hostname":"hk-01","os":"Debian 12","kernel":"6.1.0","arch":"x86_64",
+         "cpu_model":"AMD EPYC 7B13","cores":4,"mem_total":8318000000,"disk_total":93500000000,
+         "boot_time":1756100000,"ipv4":true,"ipv6":true,"public_ipv4":"1.2.3.4","public_ipv6":"2001:db8::1"}}
+
+{"type":"metrics","ts":1757660000,"cpu":0.88,"mem_used":1996000000,"swap_used":0,
+ "disk_used":22800000000,"load":[0.47,0.40,0.35],
+ "net":{"rx_total":119000000000,"tx_total":119000000000,"rx_rate":1680,"tx_rate":3530},
+ "tcp":86,"udp":12,"procs":143,"uptime":1555200}
+
+{"type":"ping","task_id":1,"ts":1757660000,"latency_ms":26.4}
+
+{"type":"core.state","core":"sing-box","installed_version":"1.1x.y","running":true,
+ "applied_revision":17,"config_sha256":"…","listening":["443/tcp","8388/tcp","8388/udp","8443/udp","8444/udp"],
+ "firewall":"ufw","error":null}
+
+{"type":"core.stats","ts":1757660000,
+ "inbounds":[{"tag":"vless-443","up":10240,"down":409600}],
+ "users":[{"name":"sub-1","up":5120,"down":204800}]}
+
+{"type":"core.logs","kind":"error","text":"…最近 200 行…"}
+```
+
+`ping.latency_ms` 丢包时为 `null`。`core.stats` 里全部是**增量**。
+
+### 7.2 Server → Agent
+
+```json
+{"type":"config","report_interval":1,
+ "ping_tasks":[{"id":1,"name":"深圳电信","target":"202.96.134.33","kind":"icmp","interval":60}]}
+
+{"type":"core.apply","revision":18,"core":"sing-box","version":"1.1x.y","config_sha256":"…",
+ "ports":["443/tcp","8388/tcp","8388/udp","8443/udp","8444/udp"],
+ "config":{ "...": "完整 sing-box config.json" }}
+
+{"type":"core.action","action":"install","version":"1.1x.y",
+ "file":"sing-box-1.1x.y-linux-amd64","sha256":"…"}
+
+{"type":"core.action","action":"restart"}
+
+{"type":"core.logs","kind":"error","lines":200}
+```
+
+### 7.3 Server → 浏览器
+
+```json
+{"type":"snapshot","ts":1757660000,"servers":[
+  {"id":2,"name":"香港-cst-01","region":"HK","tags":["V4","V6"],"online":true,
+   "cpu":0.88,"cores":4,"mem":{"used":1996000000,"total":8318000000},
+   "disk":{"used":22800000000,"total":93500000000},"load1":0.47,
+   "net":{"up":3530,"down":1680,"out_total":119000000000,"in_total":119000000000},
+   "traffic":{"used":119000000000,"limit":4000000000000,"mode":"max"},
+   "ping":[{"task_id":1,"name":"深圳电信","latency":26,"loss":0}],
+   "uptime":1555200,"expire_at":"2026-09-24","bandwidth":"","price":"$10.79","cycle":"month",
+   "core":{"running":true,"version":"1.1x.y","users":3}}
+]}
+```
+
+### 7.4 REST API
+
+| 资源 | 接口 |
+|---|---|
+| 认证 | `POST /api/auth/sign-in`、`POST /api/auth/mfa`、`GET /api/auth/me`、`POST /api/auth/password`、`POST /api/auth/totp/setup`、`POST /api/auth/totp/enable` |
+| 节点 | `GET/POST /api/servers`、`GET/PUT/DELETE /api/servers/{id}`、`POST /api/servers/{id}/token`（重置）、`GET /api/servers/{id}/history?metric=&range=`、`GET /api/servers/{id}/ping/recent?n=30`、`GET /api/servers/{id}/ping/history?task=&range=` |
+| Ping 任务 | `GET/POST /api/ping-tasks`、`PUT/DELETE /api/ping-tasks/{id}` |
+| 代理 · 核心 | `GET /api/servers/{id}/core`、`POST /api/servers/{id}/core/install`、`POST /api/servers/{id}/core/restart`、`GET /api/servers/{id}/core/logs?kind=&lines=`、`POST /api/servers/{id}/core/apply`（手动重新下发）、`GET /api/servers/{id}/core/revisions`、`POST /api/servers/{id}/core/rollback/{rev}` |
+| 代理 · 入站 | `GET/POST /api/servers/{id}/inbounds`、`PUT/DELETE /api/inbounds/{id}`、`POST /api/inbounds/{id}/regenerate-keys` |
+| 代理 · 证书 | `GET /api/servers/{id}/cert`、`POST /api/servers/{id}/cert/regenerate` |
+| 订阅用户 | `GET/POST /api/subscribers`、`GET/PUT/DELETE /api/subscribers/{id}`、`PUT /api/subscribers/{id}/assignments`、`POST /api/subscribers/{id}/reset-usage`、`POST /api/subscribers/{id}/reset-token`、`POST /api/subscribers/{id}/regenerate-credentials`、`GET /api/subscribers/{id}/traffic?range=` |
+| 订阅（免登录） | `GET /sub/{token}?format=` |
+| 告警 | `GET/PUT /api/alert-rules`、`GET/POST/PUT/DELETE /api/notify-channels`、`POST /api/notify-channels/{id}/test`、`GET /api/alert-events` |
+| 系统 | `GET/PUT /api/settings`、`GET /api/corefiles`、`POST /api/corefiles`（上传）、`PUT /api/corefiles/current`、`GET /api/audit?page=` |
+| Agent（token） | `WSS /api/agent/ws`、`GET /api/agent/corefiles/{name}`、`GET /install.sh`、`GET /agent/{file}` |
+
+---
+
+## 8. 数据模型
+
+主键统一 `id INTEGER PRIMARY KEY`，时间统一 Unix 秒或 ISO 日期，字节统一 INTEGER。
+
+### 8.1 系统
+
+| 表 | 字段 |
+|---|---|
+| `users` | username, password_hash, totp_secret, totp_enabled, created_at |
+| `settings` | key, value(json) |
+| `audit_log` | ts, actor, action, target_type, target_id, before(json), after(json), ip |
+
+### 8.2 节点与监控
+
+| 表 | 字段 | 保留 |
+|---|---|---|
+| `servers` | name, region, group_name, tags(json), sort_order, token_hash, public_host, price, currency, billing_cycle, expire_at, auto_renew, traffic_limit, traffic_reset_day, traffic_mode, bandwidth_label, note, created_at, updated_at | — |
+| `server_host_info` | server_id, hostname, os, kernel, arch, cpu_model, cores, mem_total, disk_total, boot_time, ipv4, ipv6, public_ipv4, public_ipv6, agent_version, updated_at | 最新一份 |
+| `metrics_minute` | server_id, ts, cpu_avg, cpu_max, mem_used, disk_used, load1, rx_rate_avg, rx_rate_max, tx_rate_avg, tx_rate_max, rx_total, tx_total, tcp, udp, procs；索引 (server_id, ts) | 7 天 |
+| `metrics_hour` | 同上 | 365 天 |
+| `ping_tasks` | name, target, kind, interval_sec, server_ids(json，null = 全部), enabled |  |
+| `ping_results` | server_id, task_id, ts, latency_ms(null = 丢包)；索引 (server_id, task_id, ts) | 30 天 |
+| `traffic_counters` | server_id, last_rx, last_tx, last_ts | — |
+| `traffic_periods` | server_id, period_start, period_end, in_bytes, out_bytes | 12 个月 |
+
+### 8.3 代理
+
+| 表 | 字段 | 说明 |
+|---|---|---|
+| `inbounds` | server_id, tag, protocol(vless / shadowsocks / hysteria2 / tuic), listen_port, settings(json), remark, enabled, created_at | `settings` 按协议：reality 密钥对与 short_id、握手目标；ss 服务端 PSK；hy2 混淆与带宽；tuic 拥塞控制 |
+| `certs` | server_id, sni, cert_pem, key_pem, fingerprint_sha256, not_after, created_at | 每节点一张 |
+| `node_core` | server_id, core, desired_version, installed_version, running, applied_revision, desired_revision, config_sha256, firewall, last_error, updated_at | 期望 vs 实际 |
+| `config_revisions` | server_id, revision, config_json, sha256, created_at, created_by | 每节点保留最近 20 份 |
+| `node_advanced` | server_id, extra_json | 高级 JSON（outbounds / route） |
+
+### 8.4 订阅用户
+
+| 表 | 字段 |
+|---|---|
+| `subscribers` | name, note, enabled, auto_disabled(none / quota / expired), sub_token, uuid, password, ss_user_key, traffic_limit, traffic_used, reset_day, period_start, expire_at, created_at |
+| `subscriber_assignments` | subscriber_id, inbound_id（唯一） |
+| `subscriber_traffic` | subscriber_id, server_id, period_start, up_bytes, down_bytes（唯一 (subscriber_id, server_id, period_start)） |
+| `subscriber_traffic_daily` | subscriber_id, date, up_bytes, down_bytes（曲线用，保留 90 天） |
+
+### 8.5 告警
+
+| 表 | 字段 |
+|---|---|
+| `alert_rules` | kind, params(json), enabled |
+| `notify_channels` | kind(telegram / webhook), config(json), enabled |
+| `alert_events` | rule_kind, target_type, target_id, level, message, fired_at, resolved_at, notified |
+
+"最新状态"（在线、实时指标、ping 最近值）只在内存里，Server 重启后 agent 几秒内重连即恢复。
+
+---
+
+## 9. sing-box 配置渲染规范
+
+### 9.1 版本策略
+
+面板钉住一个 sing-box 版本（开工时取最新稳定版 1.1x），渲染器只针对这个版本的字段写。sing-box 1.10 → 1.11 → 1.12 一路在废弃旧字段（例如入站的 `sniff` 移到路由规则动作），**升核心是面板的一次正式发版**：改渲染器、跑回归、更新托管二进制，再让节点升级。
+
+### 9.2 构建
+
+GitHub Actions 矩阵 linux/amd64、linux/arm64：
+
+```bash
+git clone --depth 1 --branch v1.1x.y https://github.com/SagerNet/sing-box
+cd sing-box
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
+  -tags "with_quic,with_utls,with_v2ray_api" \
+  -ldflags "-s -w -buildid= -X github.com/sagernet/sing-box/constant.Version=v1.1x.y" \
+  -o dist/sing-box-v1.1x.y-linux-amd64 ./cmd/sing-box
+./dist/sing-box-v1.1x.y-linux-amd64 version   # 输出的 Tags 必须包含 with_v2ray_api
+sha256sum dist/* > dist/SHA256SUMS
+```
+
+标签集以钉住版本的官方"Build from source"文档为准：默认集去掉 `with_clash_api`（我们不用，且与 V2Ray API 的流量 tracker 互相覆盖），加上 `with_v2ray_api`；`with_gvisor`、`with_wireguard`、`with_dhcp`、`with_tailscale` 服务端用不着，去掉减小体积。产物上传到面板 corefiles。
+
+### 9.3 模板骨架
+
+```json
+{
+  "log": { "level": "warn", "timestamp": true, "output": "/var/log/sing-box/box.log" },
+  "experimental": {
+    "v2ray_api": {
+      "listen": "127.0.0.1:10085",
+      "stats": { "enabled": true,
+                 "inbounds": ["vless-443", "ss-8388", "hy2-8443", "tuic-8444"],
+                 "users": ["sub-1", "sub-2"] }
+    }
+  },
+  "inbounds": [
+    { "type": "vless", "tag": "vless-443", "listen": "::", "listen_port": 443,
+      "users": [ { "name": "sub-1", "uuid": "{uuid}", "flow": "xtls-rprx-vision" } ],
+      "tls": { "enabled": true, "server_name": "www.microsoft.com",
+               "reality": { "enabled": true,
+                            "handshake": { "server": "www.microsoft.com", "server_port": 443 },
+                            "private_key": "{x25519 私钥}", "short_id": ["{8 字节 hex}"],
+                            "max_time_difference": "1m" } } },
+
+    { "type": "shadowsocks", "tag": "ss-8388", "listen": "::", "listen_port": 8388,
+      "method": "2022-blake3-aes-128-gcm", "password": "{服务端 PSK}",
+      "users": [ { "name": "sub-1", "password": "{用户 PSK}" } ] },
+
+    { "type": "hysteria2", "tag": "hy2-8443", "listen": "::", "listen_port": 8443,
+      "users": [ { "name": "sub-1", "password": "{密码}" } ],
+      "obfs": { "type": "salamander", "password": "{混淆密码}" },
+      "ignore_client_bandwidth": false,
+      "tls": { "enabled": true, "alpn": ["h3"],
+               "certificate": ["-----BEGIN CERTIFICATE-----", "…", "-----END CERTIFICATE-----"],
+               "key": ["-----BEGIN EC PRIVATE KEY-----", "…", "-----END EC PRIVATE KEY-----"] } },
+
+    { "type": "tuic", "tag": "tuic-8444", "listen": "::", "listen_port": 8444,
+      "users": [ { "name": "sub-1", "uuid": "{uuid}", "password": "{密码}" } ],
+      "congestion_control": "bbr", "zero_rtt_handshake": false,
+      "auth_timeout": "3s", "heartbeat": "10s",
+      "tls": { "enabled": true, "alpn": ["h3"], "certificate": ["…"], "key": ["…"] } }
+  ],
+  "outbounds": [ { "type": "direct", "tag": "direct" } ],
+  "route": { "rules": [ { "action": "sniff" } ], "final": "direct" }
+}
+```
+
+### 9.4 渲染规则
+
+- 入站 `tag` = `{协议简称}-{端口}`；用户 `name` = `sub-{subscriber_id}`——这两个名字就是统计计数器的 key，改名等于重新计数
+- 只渲染 `enabled = true` 且未被自动停用、且分配到该入站的用户；一个入站一个用户都没有时仍渲染入站（保持端口在线），`users` 为空数组
+- `v2ray_api.stats.inbounds / users` = 该节点本次渲染出的全部 tag 与用户名
+- 证书从 `certs` 表按行拆成数组内联，agent 不管文件
+- `node_advanced.extra_json` 的 `outbounds`、`route` 与骨架**合并**：附加的 outbounds 追加；附加的 route.rules 插到 `sniff` 之后、`final` 之前；附加的 `final` 覆盖默认
+- 渲染后用面板本地的同版本 `sing-box check` 预检一次（面板容器里也放一份二进制），错的配置不下发
+
+### 9.5 已知坑
+
+- `stats.enabled` 不为 true 时，V2Ray API 会对所有调用返回 `Unimplemented`
+- 不要同时启用 `clash_api`：两者的流量 tracker 会互相覆盖（sing-box issue #2742）
+- Reality 握手目标要选支持 TLS 1.3 + HTTP/2 的大站，且离节点地理位置近；国内节点别用被墙的目标
+- Hysteria2 `ignore_client_bandwidth=false` 时客户端可以声明带宽，服务端会照做——家人朋友的客户端配置别乱填
+- 修订号只增不减；agent 断线重连时用 `hello.applied_revision` 对齐，Server 发现落后即补发
+
+---
+
+## 10. 订阅格式规范
+
+### 10.1 Clash（默认）
+
+四个协议在 mihomo 里的写法：
+
+```yaml
+proxies:
+  - name: "香港-cst-01 · VLESS"
+    type: vless
+    server: 1.2.3.4
+    port: 443
+    uuid: "{uuid}"
+    network: tcp
+    udp: true
+    tls: true
+    flow: xtls-rprx-vision
+    servername: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "{x25519 公钥}"
+      short-id: "{short_id}"
+
+  - name: "香港-cst-01 · SS"
+    type: ss
+    server: 1.2.3.4
+    port: 8388
+    cipher: 2022-blake3-aes-128-gcm
+    password: "{服务端 PSK}:{用户 PSK}"
+    udp: true
+
+  - name: "香港-cst-01 · HY2"
+    type: hysteria2
+    server: 1.2.3.4
+    port: 8443
+    password: "{密码}"
+    obfs: salamander
+    obfs-password: "{混淆密码}"
+    sni: www.bing.com
+    skip-cert-verify: false
+    fingerprint: "{证书 SHA256 指纹}"
+    alpn: [h3]
+
+  - name: "香港-cst-01 · TUIC"
+    type: tuic
+    server: 1.2.3.4
+    port: 8444
+    uuid: "{uuid}"
+    password: "{密码}"
+    alpn: [h3]
+    sni: www.bing.com
+    skip-cert-verify: false
+    fingerprint: "{证书 SHA256 指纹}"
+    congestion-controller: bbr
+    udp-relay-mode: native
+    reduce-rtt: true
+```
+
+要点：Hysteria2 与 TUIC 用 `fingerprint` pin 自签证书，`skip-cert-verify` 保持 false；`sni` 与证书 SAN 一致。默认的 proxy-groups 与 rules 模板：
+
+```yaml
+proxy-groups:
+  - name: 节点选择
+    type: select
+    proxies: [自动选择, DIRECT, {{PROXY_NAMES}}]
+  - name: 自动选择
+    type: url-test
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+    tolerance: 50
+    proxies: [{{PROXY_NAMES}}]
+rules:
+  - GEOSITE,private,DIRECT
+  - GEOSITE,cn,DIRECT
+  - GEOIP,private,DIRECT,no-resolve
+  - GEOIP,CN,DIRECT
+  - MATCH,节点选择
+```
+
+`clash-provider` 格式只输出 `proxies:` 段。
+
+### 10.2 sing-box
+
+输出 `outbounds` 数组：`vless`（`flow: xtls-rprx-vision`，`tls.reality.public_key / short_id`，`tls.utls.fingerprint: chrome`）、`shadowsocks`（`password` 为 `服务端PSK:用户PSK`）、`hysteria2`（`obfs`，`tls.certificate` 内嵌 PEM，`tls.server_name` = 伪装 SNI）、`tuic`（`congestion_control: bbr`，`tls.certificate` 内嵌）。内嵌证书后客户端做正常校验，不需要 `insecure`。
+
+### 10.3 URI 列表
+
+```
+vless://{uuid}@{host}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&fp=chrome&pbk={公钥}&sid={short_id}&type=tcp#{名称}
+ss://2022-blake3-aes-128-gcm:{服务端PSK}:{用户PSK}@{host}:8388#{名称}
+hysteria2://{密码}@{host}:8443/?sni=www.bing.com&insecure=0&pinSHA256={指纹}&obfs=salamander&obfs-password={混淆密码}#{名称}
+tuic://{uuid}:{密码}@{host}:8444?congestion_control=bbr&alpn=h3&sni=www.bing.com&udp_relay_mode=native&allow_insecure=1#{名称}
+```
+
+TUIC 没有统一的 URI 标准，按 v2rayN / NekoBox 的写法输出，且这些客户端多半不支持指纹 pin，只能 `allow_insecure=1`——这是 `uri` 格式排在最后的原因。
+
+### 10.4 用量头
+
+```
+subscription-userinfo: upload={up}; download={down}; total={limit}; expire={unix}
+profile-update-interval: 24
+content-disposition: attachment; filename="{订阅用户名}.yaml"
+```
+
+`total` 在不限额时省略，`expire` 在无到期时省略。
+
+---
+
+## 11. 前端设计
+
+### 11.1 底座与补齐
+
+底座 `minimal-starter-vite-ts-main`（`@minimal-kit/starter-vite-ts` 7.7.0，331 个文件）。已有：dashboard 布局、主题与设置抽屉、JWT 登录、`animate`、`hook-form`、`iconify`、`label`、`flag-icon`、`custom-popover`、`scrollbar`、`nav-section`、`loading-screen`。
+
+从完整版拷：
+
+| 拷 | 用途 | 加依赖 |
+|---|---|---|
+| `components/chart` | 详情页历史曲线 | `apexcharts`、`react-apexcharts` |
+| `components/custom-data-grid` | 节点表、订阅用户表、入站表 | 已有 `@mui/x-data-grid` |
+| `components/custom-dialog` | 确认类弹窗 | — |
+| `components/snackbar` | 操作反馈 | `sonner` |
+| `components/empty-content` | 空状态 | — |
+| `components/custom-breadcrumbs` | 页头 | — |
+| `sections/account` 改密码页 | 设置页 | — |
+
+另加：`swr`（starter 没带，`lib/axios.ts` 的 `fetcher` 就是给它写的）、`zustand`、`qrcode.react`、`country-flag-icons`。
+
+必改三处：`global-config.ts` 的 `auth.skip: true` 改为 `false`；`components/flag-icon` 从外网 URL 改为本地 `country-flag-icons`；`vite.config.ts` 增加 `/api` 与 `/api/ws`（`ws: true`）代理到 Go 服务（Go 服务不要也用 8080）。
+
+### 11.2 目录
+
+```
+web/src/
+├── api/                 axios 端点 + SWR hooks：servers.ts、proxy.ts、subscribers.ts、alerts.ts、settings.ts
+├── ws/client.ts         浏览器 WS 连接、auth、重连
+├── store/realtime.ts    zustand：快照、连接状态
+├── sections/
+│   ├── monitor/         overview-view、server-card、sparkline、ping-blocks、summary-bar
+│   ├── servers/         list、form（基础/接入/账单/套餐 四个 Tab）、detail（history-charts）
+│   ├── proxy/           core-status-card、inbound-list、inbound-form（按协议）、cert-card、log-drawer、advanced-json
+│   ├── subscribers/     list、form、assignment-picker、quota-bar、sub-links-dialog（三格式 + 二维码）
+│   ├── alerts/          rules、channels、events
+│   └── settings/        site、security（改密码、TOTP）、corefiles、audit
+├── pages/dashboard/     薄包装，一页一文件
+├── routes/paths.ts、routes/sections/dashboard.tsx
+└── layouts/nav-config-dashboard.tsx
+```
+
+### 11.3 路由与导航
+
+| 导航 | 路径 |
+|---|---|
+| 监控总览 | `/dashboard` |
+| 节点 | `/dashboard/servers`、`/dashboard/servers/:id`、`/dashboard/servers/:id/edit` |
+| 代理 | `/dashboard/proxy`（各节点核心状态一览）、`/dashboard/proxy/:serverId` |
+| 订阅用户 | `/dashboard/subscribers`、`/dashboard/subscribers/:id` |
+| 告警 | `/dashboard/alerts` |
+| 设置 | `/dashboard/settings/*` |
+| 登录 | `/auth/sign-in` |
+
+### 11.4 实时数据
+
+`ws/client.ts` 建连 → 发 `auth` → 收 `snapshot` 写入 zustand。卡片用 selector 只订阅自己那台节点，并 `memo`；"实时"小折线的 30 个点在卡片组件本地维护。断线时顶部显示"连接中断，正在重连"，数据保留最后一帧并标灰。配置类数据（节点表、入站、订阅用户）走 SWR，写操作后 `mutate`。
+
+### 11.5 卡片实现要点
+
+- 小折线与 ping 方块**自己写 SVG**（`polyline` 与一排 `rect`），不用 ApexCharts——十几张卡每秒重绘图表库会卡
+- 国旗用 `country-flag-icons` 的 SVG，不用 emoji（Windows 上 Chrome 不渲染 emoji 国旗）
+- 数字用 `font-variant-numeric: tabular-nums`，单位换算统一走 `utils/format`（1000 / 1024 由设置决定）
+- 入场用 `MotionContainer` + `varFade('inUp')`，数字变化用 `AnimateCountUp`；到此为止，别再堆动画
+
+### 11.6 表单
+
+入站表单 `zod` 用 `discriminatedUnion('protocol', [...])`，四个协议四个 schema；订阅用户表单的分配用节点分组的多选树（`@mui/x-tree-view` starter 已带）。
+
+### 11.7 构建与嵌入
+
+`npm run build` 出 `dist/`，Go 端 `embed.FS` 打进二进制，SPA 路由回退到 `index.html`。开发时前端 `npm run dev`（8080）代理到 Go（9000）。
+
+---
+
+## 12. 部署与运维
+
+### 12.1 面板
+
+```yaml
+# deploy/docker-compose.yml
+services:
+  server:
+    image: ghcr.io/{you}/vps-monitor-server:latest
+    restart: unless-stopped
+    environment:
+      VM_LISTEN: ":9000"
+      VM_DATA_DIR: /data
+      VM_PUBLIC_URL: https://panel.example.com
+      VM_JWT_SECRET: "{随机 32 字节}"
+      VM_TZ: Asia/Shanghai
+    volumes:
+      - ./data:/data
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+volumes:
+  caddy_data: {}
+```
+
+```
+# deploy/Caddyfile
+panel.example.com {
+    reverse_proxy server:9000
+}
+```
+
+首次启动打印初始管理员密码到日志；`data/` 里是 SQLite、corefiles、agent 二进制。可选加一层访问限制：Caddy 只放行自己的 IP 段，或放到 Cloudflare Access / Tailscale 后面。
+
+### 12.2 Agent
+
+后台"节点"页复制一键安装命令（5.5）。升级：面板发新 agent 版本后，agent 收到 `agent.update` 消息自下载替换重启（阶段 5 做；之前手动重跑安装脚本即可）。
+
+### 12.3 备份与恢复
+
+每日 `sqlite3 data/vm.db ".backup data/backup/vm-$(date +%F).db"` 保留 14 天；`corefiles` 可从 CI 重新拉。恢复 = 替换 db 文件后重启 server；agent 重连即恢复实时状态，节点配置由修订号对齐后自动补发。
+
+### 12.4 升级顺序
+
+1. 面板：换镜像 `docker compose pull && up -d`，迁移自动跑
+2. sing-box：CI 产出新版本 → 上传 corefiles → 设为当前版本 → 在代理页逐台点"升级"（升级 = 装新二进制 + 重启，断连几秒）
+3. agent：新版本先在一台上验证，再全量
+
+### 12.5 CI
+
+三条流水线：`agent`（Go 交叉编译两架构 + 上传面板）、`server`（前端 build → Go embed → 镜像）、`sing-box`（9.2 的构建，按 tag 触发，产物附 SHA256SUMS）。
+
+---
+
+## 13. 安全设计
+
+- **agent 指令白名单**：无任意命令执行；每条消息做 schema 校验；只写固定路径、只操作固定 unit
+- **面板私有**：整站登录；JWT 12 小时；argon2id；登录限速；TOTP；建议网络层再限一道（IP 白名单 / Cloudflare Access / Tailscale）
+- **token 分离**：每节点独立 agent token（只存哈希，可重置）；每订阅用户独立 sub_token（可重置）；泄露影响范围局限
+- **sing-box API 仅本机**：`127.0.0.1:10085`
+- **证书 pin**：Hy2 / TUIC 订阅默认带指纹，不默认 `insecure`
+- **审计**：所有写操作记 `audit_log`（谁、何时、改了什么、改前改后）
+- **传输**：agent、浏览器、订阅全部 TLS；订阅 URL 不进访问日志正文（Caddy 日志脱敏 `/sub/*` 路径）
+- **供应链**：sing-box 与 agent 二进制由自己的 CI 构建并附 sha256，agent 下载后校验
+
+---
+
+## 14. 开发路线
+
+| 阶段 | 内容 | 完成标志 |
+|---|---|---|
+| **1 监控 MVP** | starter 拷组件、登录打通（含 `auth.skip=false`）；agent 采集与上报；Server Hub、内存状态、快照广播；卡片网格（CPU/内存/磁盘/负载/网速/在线）；节点管理与 token；docker compose + Caddy 部署 | 你的几台机器的卡片在面板里实时在动 |
+| **2 历史 + 延迟** | 分钟聚合落库、小时降采样、保留清理；详情页 ApexCharts；ping 任务下发与三网方块；V4/V6 探测；离线判定与灰化 | 详情页能看 24h 曲线，卡片有三网延迟 |
+| **3 代理一期** | CI 编译 sing-box 并托管；corectl 安装/应用/回滚/统计/日志；入站 CRUD（四协议）与证书；订阅用户 CRUD、凭据、分配；渲染器与预检；每用户统计入库；`clash` 与 `clash-provider` 订阅 + 二维码 + 用量头 | 从面板给一台节点开四个入站，Clash 扫码导入四条都能连，面板上看得到每人用量 |
+| **4 代理二期** | 限额/到期自动停用与月度重置；变更合并下发；`singbox`、`uri` 订阅格式；中转链路 UI（高级 JSON）；日志抽屉；端口放行与安全组提示；用量告警 | 家人朋友各自的额度到了会自动停、月初自动恢复 |
+| **5 账单 + 告警 + 打磨** | 价格/周期/到期/自动顺延；节点流量套餐结算与剩余进度条；告警规则与 Telegram/Webhook；审计日志页；手机适配；agent 自动更新；备份脚本 | 截图里的元素全部对齐，能长期稳定跑 |
+
+阶段 3 的第一步是把 sing-box 编出来并在一台节点上手工验证 V2Ray API 统计可用，再写渲染器——先把地基踩实。
+
+---
+
+## 15. 待验证事项
+
+| # | 事项 | 怎么验 |
+|---|---|---|
+| 1 | 钉定 sing-box 版本；核对该版本的构建标签（是否还有 `with_reality_server` 之类）；确认 issue #2742 的 tracker 冲突在该版本的状态 | 读该版本文档与 changelog；编出来后 `version` 看 Tags |
+| 2 | 只开 `v2ray_api` 时每用户统计准确 | 一台节点两个用户各跑 100 MB，对比计数 |
+| 3 | mihomo 对 Hysteria2 / TUIC 的 `fingerprint` pin 与 SS2022 `服务端PSK:用户PSK` 写法 | 用 Clash Verge Rev 实测四条代理 |
+| 4 | 三网 ping 目标可达性 | 从各节点 ping 一遍候选 IP |
+| 5 | Reality 握手目标按地域选取 | 各节点 `curl -v` 候选站点看 TLS 1.3 / h2 |
+| 6 | 深圳节点 UDP/QUIC 实际可用性 | 开一个 Hy2 入站从本地测速 |
+| 7 | starter 登录页加 MFA 步骤的改动量 | 读 `auth/view/jwt/sign-in-view.tsx` |
+| 8 | Hysteria2 端口跳跃是否需要（客户端 `ports` 字段） | 二期按需 |
+
+---
+
+## 附录 A · 仓库结构
+
+```
+vps-monitor/
+├── agent/            Go module：cmd/agent、internal/{collector,ping,transport,corectl}、install.sh、uninstall.sh
+├── server/           Go module：cmd/server、internal/…（6.1）、web/（embed）
+├── web/              前端（Minimal starter 为底）
+├── deploy/           docker-compose.yml、Caddyfile、.env.example
+├── ci/               GitHub Actions：agent.yml、server.yml、sing-box.yml
+└── docs/             设计方案.md、protocol.md、render.md、runbook.md
+```
+
+## 附录 B · 名词
+
+| 名词 | 含义 |
+|---|---|
+| 节点 / server | 一台被监控、可部署 sing-box 的 VPS |
+| 入站 / inbound | 节点上 sing-box 监听的一个协议端口 |
+| 订阅用户 / subscriber | 一个人（或一组设备），持有一套凭据与一个订阅链接 |
+| 分配 / assignment | 订阅用户与入站的多对多关系 |
+| 期望状态 | Server 渲染出的某节点的 sing-box 版本 + 完整配置 |
+| 修订 / revision | 期望状态的单调递增版本号 |
+| 账期 / period | 流量统计的重置周期，节点与订阅用户各有一套 |
+| 核心 / core | 节点上的代理内核，目前只有 sing-box |
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
+<script>
+(function () {
+  var md = document.getElementById('src').textContent.trim();
+  var doc = document.getElementById('doc');
+
+  function fallback() {
+    var pre = document.createElement('pre');
+    pre.className = 'raw';
+    pre.textContent = md;
+    doc.appendChild(pre);
+  }
+
+  if (typeof marked === 'undefined') { fallback(); return; }
+  try {
+    marked.setOptions({ gfm: true, breaks: false, headerIds: false, mangle: false, smartypants: false });
+    doc.innerHTML = marked.parse(md);
+  } catch (e) { fallback(); return; }
+
+  // 表格外套一层，宽表横向滚动而不是撑破页面
+  doc.querySelectorAll('table').forEach(function (t) {
+    var w = document.createElement('div');
+    w.className = 'table-wrap';
+    t.parentNode.insertBefore(w, t);
+    w.appendChild(t);
+  });
+
+  // 目录：h2 为一级，h3 为二级
+  var list = document.getElementById('toc-list');
+  var listM = document.getElementById('toc-list-m');
+  var heads = doc.querySelectorAll('h2, h3');
+  var links = [];
+  var n = 0;
+  heads.forEach(function (h) {
+    n += 1;
+    h.id = 's' + n;
+    var li = document.createElement('li');
+    li.className = h.tagName === 'H2' ? 'h2' : 'h3';
+    var a = document.createElement('a');
+    a.href = '#' + h.id;
+    a.textContent = h.textContent;
+    li.appendChild(a);
+    list.appendChild(li);
+    listM.appendChild(li.cloneNode(true));
+    links.push({ h: h, a: a });
+  });
+
+  // 滚动时高亮当前章节
+  if ('IntersectionObserver' in window && links.length) {
+    var active = null;
+    var setActive = function (h) {
+      if (active === h) return;
+      active = h;
+      links.forEach(function (l) { l.a.classList.toggle('active', l.h === h); });
+      var cur = list.querySelector('a.active');
+      if (cur && cur.scrollIntoView) {
+        var r = cur.getBoundingClientRect();
+        var tr = list.parentNode.getBoundingClientRect();
+        if (r.top < tr.top || r.bottom > tr.bottom) cur.scrollIntoView({ block: 'nearest' });
+      }
+    };
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { if (en.isIntersecting) setActive(en.target); });
+    }, { rootMargin: '0px 0px -75% 0px', threshold: 0 });
+    links.forEach(function (l) { io.observe(l.h); });
+    setActive(links[0].h);
+  }
+})();
+</script>
