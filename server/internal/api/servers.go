@@ -1,0 +1,352 @@
+package api
+
+import (
+	"errors"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/go-chi/chi/v5"
+
+	"vpsmon/server/internal/audit"
+	"vpsmon/server/internal/auth"
+	"vpsmon/server/internal/store"
+)
+
+// serverConfigDTO 是节点的持久化配置。字段名用蛇形，与设计方案 §7.3 的快照结构一致，
+// 步骤 06 的前端可以用同一套类型。（auth 的 user 对象是 camelCase，那是为了对齐前端 starter。）
+type serverConfigDTO struct {
+	ID              int64    `json:"id"`
+	Name            string   `json:"name"`
+	Region          string   `json:"region"`
+	GroupName       string   `json:"group_name"`
+	Tags            []string `json:"tags"`
+	SortOrder       int64    `json:"sort_order"`
+	PublicHost      string   `json:"public_host"`
+	Price           float64  `json:"price"`
+	Currency        string   `json:"currency"`
+	BillingCycle    string   `json:"billing_cycle"`
+	ExpireAt        *string  `json:"expire_at"`
+	AutoRenew       bool     `json:"auto_renew"`
+	TrafficLimit    int64    `json:"traffic_limit"`
+	TrafficResetDay int      `json:"traffic_reset_day"`
+	TrafficMode     string   `json:"traffic_mode"`
+	BandwidthLabel  string   `json:"bandwidth_label"`
+	Note            string   `json:"note"`
+	CreatedAt       int64    `json:"created_at"`
+	UpdatedAt       int64    `json:"updated_at"`
+}
+
+// serverDTO 是配置加上实时状态。online / last_seen 在步骤 05 接上 hub 之前恒为 false / null。
+type serverDTO struct {
+	serverConfigDTO
+	Online   bool     `json:"online"`
+	LastSeen *int64   `json:"last_seen"`
+	Host     *hostDTO `json:"host"`
+}
+
+// hostDTO 是 agent 上报的静态信息（步骤 05 起才有值）。
+type hostDTO struct {
+	Hostname     string `json:"hostname"`
+	OS           string `json:"os"`
+	Kernel       string `json:"kernel"`
+	Arch         string `json:"arch"`
+	CPUModel     string `json:"cpu_model"`
+	Cores        int    `json:"cores"`
+	MemTotal     int64  `json:"mem_total"`
+	DiskTotal    int64  `json:"disk_total"`
+	BootTime     int64  `json:"boot_time"`
+	IPv4         bool   `json:"ipv4"`
+	IPv6         bool   `json:"ipv6"`
+	PublicIP     string `json:"public_ip"`
+	AgentVersion string `json:"agent_version"`
+	UpdatedAt    int64  `json:"updated_at"`
+}
+
+func toServerConfigDTO(s *store.Server) serverConfigDTO {
+	return serverConfigDTO{
+		ID:              s.ID,
+		Name:            s.Name,
+		Region:          s.Region,
+		GroupName:       s.GroupName,
+		Tags:            s.Tags,
+		SortOrder:       s.SortOrder,
+		PublicHost:      s.PublicHost,
+		Price:           s.Price,
+		Currency:        s.Currency,
+		BillingCycle:    s.BillingCycle,
+		ExpireAt:        s.ExpireAt,
+		AutoRenew:       s.AutoRenew,
+		TrafficLimit:    s.TrafficLimit,
+		TrafficResetDay: s.TrafficResetDay,
+		TrafficMode:     s.TrafficMode,
+		BandwidthLabel:  s.BandwidthLabel,
+		Note:            s.Note,
+		CreatedAt:       s.CreatedAt,
+		UpdatedAt:       s.UpdatedAt,
+	}
+}
+
+func toServerDTO(s *store.Server, h *store.HostInfo) serverDTO {
+	dto := serverDTO{serverConfigDTO: toServerConfigDTO(s)}
+	if h != nil {
+		dto.Host = &hostDTO{
+			Hostname:     h.Hostname,
+			OS:           h.OS,
+			Kernel:       h.Kernel,
+			Arch:         h.Arch,
+			CPUModel:     h.CPUModel,
+			Cores:        h.Cores,
+			MemTotal:     h.MemTotal,
+			DiskTotal:    h.DiskTotal,
+			BootTime:     h.BootTime,
+			IPv4:         h.IPv4,
+			IPv6:         h.IPv6,
+			PublicIP:     h.PublicIP,
+			AgentVersion: h.AgentVersion,
+			UpdatedAt:    h.UpdatedAt,
+		}
+	}
+	return dto
+}
+
+// listServers 处理 GET /api/servers。
+func (d *Deps) listServers(w http.ResponseWriter, r *http.Request) {
+	servers, err := d.DB.ListServers(r.Context())
+	if err != nil {
+		serverError(w, "list servers", err)
+		return
+	}
+	hosts, err := d.DB.ListHostInfo(r.Context())
+	if err != nil {
+		serverError(w, "list host info", err)
+		return
+	}
+
+	out := make([]serverDTO, 0, len(servers))
+	for i := range servers {
+		s := &servers[i]
+		var host *store.HostInfo
+		if h, ok := hosts[s.ID]; ok {
+			host = &h
+		}
+		out = append(out, toServerDTO(s, host))
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"servers": out})
+}
+
+// getServer 处理 GET /api/servers/{id}。
+func (d *Deps) getServer(w http.ResponseWriter, r *http.Request) {
+	s, ok := d.lookupServer(w, r)
+	if !ok {
+		return
+	}
+
+	host, err := d.DB.GetHostInfo(r.Context(), s.ID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		serverError(w, "get host info", err)
+		return
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		host = nil
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"server": toServerDTO(s, host)})
+}
+
+// createServer 处理 POST /api/servers。token 明文只在这里返回一次。
+func (d *Deps) createServer(w http.ResponseWriter, r *http.Request) {
+	var req serverRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	in, err := req.toInput()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	token, err := auth.NewAgentToken()
+	if err != nil {
+		serverError(w, "create server: new token", err)
+		return
+	}
+
+	s, err := d.DB.CreateServer(r.Context(), in, auth.HashAgentToken(token))
+	if err != nil {
+		serverError(w, "create server", err)
+		return
+	}
+
+	after := toServerConfigDTO(s)
+	audit.Record(r.Context(), d.DB, "server.create", "server", strconv.FormatInt(s.ID, 10), nil, after)
+	slog.Info("server created", "server_id", s.ID, "name", s.Name)
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"server":          toServerDTO(s, nil),
+		"token":           token,
+		"install_command": installCommand(d.publicBase(r), token),
+	})
+}
+
+// updateServer 处理 PUT /api/servers/{id}：全量覆盖可写字段，token 不变。
+func (d *Deps) updateServer(w http.ResponseWriter, r *http.Request) {
+	before, ok := d.lookupServer(w, r)
+	if !ok {
+		return
+	}
+
+	var req serverRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	in, err := req.toInput()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	updated, err := d.DB.UpdateServer(r.Context(), before.ID, in)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		notFoundServer(w)
+		return
+	case err != nil:
+		serverError(w, "update server", err)
+		return
+	}
+
+	audit.Record(r.Context(), d.DB, "server.update", "server", strconv.FormatInt(updated.ID, 10),
+		toServerConfigDTO(before), toServerConfigDTO(updated))
+	slog.Info("server updated", "server_id", updated.ID, "name", updated.Name)
+
+	writeJSON(w, http.StatusOK, map[string]any{"server": toServerDTO(updated, nil)})
+}
+
+// deleteServer 处理 DELETE /api/servers/{id}。子表靠外键级联删除。
+func (d *Deps) deleteServer(w http.ResponseWriter, r *http.Request) {
+	before, ok := d.lookupServer(w, r)
+	if !ok {
+		return
+	}
+
+	err := d.DB.DeleteServer(r.Context(), before.ID)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		notFoundServer(w)
+		return
+	case err != nil:
+		serverError(w, "delete server", err)
+		return
+	}
+
+	audit.Record(r.Context(), d.DB, "server.delete", "server", strconv.FormatInt(before.ID, 10),
+		toServerConfigDTO(before), nil)
+	slog.Info("server deleted", "server_id", before.ID, "name", before.Name)
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// resetServerToken 处理 POST /api/servers/{id}/token：换一个新 token，旧的立即作废。
+func (d *Deps) resetServerToken(w http.ResponseWriter, r *http.Request) {
+	s, ok := d.lookupServer(w, r)
+	if !ok {
+		return
+	}
+
+	token, err := auth.NewAgentToken()
+	if err != nil {
+		serverError(w, "reset token: new token", err)
+		return
+	}
+
+	err = d.DB.UpdateServerTokenHash(r.Context(), s.ID, auth.HashAgentToken(token))
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		notFoundServer(w)
+		return
+	case err != nil:
+		serverError(w, "reset token", err)
+		return
+	}
+
+	// 审计只记"换过了"，前后都不含 token 与哈希
+	audit.Record(r.Context(), d.DB, "server.token_reset", "server", strconv.FormatInt(s.ID, 10), nil, nil)
+	slog.Info("server token reset", "server_id", s.ID, "name", s.Name)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"token":           token,
+		"install_command": installCommand(d.publicBase(r), token),
+	})
+}
+
+// lookupServer 解析 URL 里的 {id} 并取出节点。失败时已经写好响应，调用方直接 return。
+func (d *Deps) lookupServer(w http.ResponseWriter, r *http.Request) (*store.Server, bool) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		notFoundServer(w)
+		return nil, false
+	}
+
+	s, err := d.DB.GetServer(r.Context(), id)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		notFoundServer(w)
+		return nil, false
+	case err != nil:
+		serverError(w, "get server", err)
+		return nil, false
+	}
+	return s, true
+}
+
+func notFoundServer(w http.ResponseWriter) {
+	writeError(w, http.StatusNotFound, "节点不存在")
+}
+
+// serverError 记日志并返回统一的 500。err 不进响应体——里面可能有 SQL 细节。
+func serverError(w http.ResponseWriter, what string, err error) {
+	slog.Error(what+" failed", "err", err)
+	writeError(w, http.StatusInternalServerError, "服务器内部错误")
+}
+
+// publicBase 返回面板对外的基地址（不带尾斜杠）。
+//
+// 优先用 VM_PUBLIC_URL；没配就按这次请求的 Host 推断，方便本地开发。
+// 反向代理后面必须配 VM_PUBLIC_URL，否则拼出来的是内网地址——Host 头是客户端可控的，
+// 这里只用来拼给管理员看的安装命令，不参与任何鉴权判断。
+func (d *Deps) publicBase(r *http.Request) string {
+	if d.PublicURL != "" {
+		return d.PublicURL
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	// 可信代理模式下才采信 X-Forwarded-Proto：直连时这个头是伪造的
+	if !d.TrustedProxies.Direct() {
+		if proto := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]); proto == "http" || proto == "https" {
+			scheme = proto
+		}
+	}
+	return scheme + "://" + r.Host
+}
+
+// installCommand 拼一键安装命令。base 形如 https://panel.example.com。
+func installCommand(base, token string) string {
+	return "curl -fsSL " + base + "/install.sh | bash -s -- --server " + wsURL(base) + "/api/agent/ws --token " + token
+}
+
+// wsURL 把 http(s) 基地址换成 ws(s)。
+func wsURL(base string) string {
+	switch {
+	case strings.HasPrefix(base, "https://"):
+		return "wss://" + strings.TrimPrefix(base, "https://")
+	case strings.HasPrefix(base, "http://"):
+		return "ws://" + strings.TrimPrefix(base, "http://")
+	default:
+		return base
+	}
+}

@@ -90,6 +90,8 @@ func run() error {
 		Version:        version,
 		Web:            web.Handler(),
 		TrustedProxies: cfg.TrustedProxies,
+		DataDir:        cfg.DataDir,
+		PublicURL:      cfg.PublicURL,
 	})
 
 	srv := &http.Server{

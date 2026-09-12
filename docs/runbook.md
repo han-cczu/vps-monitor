@@ -83,6 +83,31 @@ sqlite3 data/vm.db "SELECT ts, actor, action, ip FROM audit_log ORDER BY id DESC
 
 启动完成后 `{VM_DATA_DIR}/` 下会有 `vm.db`（以及 WAL 模式的 `vm.db-wal`、`vm.db-shm`）和 `jwt.secret`。目录本身是 0700、`jwt.secret` 是 0600：里面有密码哈希和签名密钥，不能让同机其他用户读到。
 
+### 节点与 agent 分发（步骤 03）
+
+面板里「节点 → 新增节点」保存后会弹出 **agent token 与一键安装命令，只显示这一次**。命令形如：
+
+```sh
+curl -fsSL https://panel.example.com/install.sh | bash -s -- --server wss://panel.example.com/api/agent/ws --token xxxx
+```
+
+命令里的面板地址取 `VM_PUBLIC_URL`。**放在 Caddy 后面就必须配它**，否则拼出来的是请求头里的 Host（可能是内网地址或端口）。
+本地开发不配也行：会拼成 `http://localhost:9000`，`--server` 相应是 `ws://`。
+
+`/install.sh` 与 `/agent/{file}` 从 `{VM_DATA_DIR}/agent/` 下发，**不需要登录**（agent 装机时还没有任何凭据），
+只认四个文件名：`install.sh`、`uninstall.sh`、`vps-agent-linux-amd64`、`vps-agent-linux-arm64`。
+其余名字（含任何目录穿越写法）一律 404，所以往这个目录里放别的东西不会被下载到。
+
+脚本与二进制本身是步骤 04 的产出；步骤 07 的镜像会把 CI 产物放进去。在那之前本地这样放：
+
+```sh
+make build-agent                      # 产出 dist/agent/vps-agent-linux-{amd64,arm64}
+mkdir -p data/agent
+cp dist/agent/* agent/install.sh data/agent/
+```
+
+没放之前访问 `/install.sh` 会返回纯文本 404（不是 500，也不是前端页面），属正常。
+
 ## 2. 构建
 
 ```sh
@@ -124,6 +149,23 @@ sqlite3 data/vm.db "DELETE FROM users WHERE username = 'admin';"
 删掉 `{VM_DATA_DIR}/jwt.secret` 后重启（或换一个 `VM_JWT_SECRET`），之前签发的 token 全部作废，浏览器会被踢回登录页并提示"登录已过期"。
 
 注意：**改密码不会让已签发的 token 失效**，旧 token 最长还能用 12 小时。怀疑 token 泄露就用上面这招换密钥。
+
+### 节点 token 丢了 / agent 认证失败
+
+token 只在创建那一次显示，库里只有 sha256，找不回来。到「节点」页对着那台机器选「重置 token」，
+会给出新 token 与新的安装命令；**旧 token 立刻失效**，那台机器上的 agent 需要用新 token 重装（或改 `/etc/vps-agent/config.yaml` 后重启）。
+
+审计表能看到谁在什么时候重置的（不含 token 本身）：
+
+```sh
+sqlite3 data/vm.db "SELECT ts, actor, action, target_id, ip FROM audit_log WHERE action LIKE 'server.%' ORDER BY id DESC LIMIT 20;"
+```
+
+### 删节点会连带删掉什么
+
+`servers` 是所有节点数据的根：删掉它，`server_host_info` 以及后续步骤的指标、ping 结果、入站、证书、修订、
+订阅分配都会被外键级联删除，**不可恢复**（面板上有二次确认）。删之前想留数据就先备份 `vm.db`。
+节点上的 agent 不会自己消失，要手动 `bash /path/uninstall.sh` 或停掉 systemd 服务，否则它会一直重连并被拒。
 
 ### 看访问日志
 

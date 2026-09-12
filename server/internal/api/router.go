@@ -38,6 +38,8 @@ type Deps struct {
 	Version        string
 	Web            http.Handler // 内嵌前端（server/web.Handler()）
 	TrustedProxies config.TrustedProxies
+	DataDir        string // VM_DATA_DIR：/install.sh 与 /agent/{file} 从 {DataDir}/agent/ 下发
+	PublicURL      string // VM_PUBLIC_URL：拼一键安装命令用，为空时按请求的 Host 推断
 
 	// verifySem 由 NewRouter 初始化，限制并发密码校验数。
 	verifySem chan struct{}
@@ -74,6 +76,13 @@ func NewRouter(deps Deps) http.Handler {
 			protected.Use(d.Tokens.Middleware)
 			protected.Get("/auth/me", d.me)
 			protected.Post("/auth/password", d.changePassword)
+
+			protected.Get("/servers", d.listServers)
+			protected.Post("/servers", d.createServer)
+			protected.Get("/servers/{id}", d.getServer)
+			protected.Put("/servers/{id}", d.updateServer)
+			protected.Delete("/servers/{id}", d.deleteServer)
+			protected.Post("/servers/{id}/token", d.resetServerToken)
 		})
 
 		api.NotFound(func(w http.ResponseWriter, _ *http.Request) {
@@ -83,6 +92,14 @@ func NewRouter(deps Deps) http.Handler {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		})
 	})
+
+	// agent 装机时还没有任何凭据，这两个下载地址是公开的（内容见 {DataDir}/agent/）
+	r.Get("/install.sh", d.installScript)
+	r.Get("/agent/{file}", d.agentFile)
+	// 没带文件名的 /agent 与 /agent/ 也留在这里：白名单不命中，回纯文本 404，
+	// 不要落到 SPA 回退去给 curl 一段 HTML
+	r.Get("/agent", d.agentFile)
+	r.Get("/agent/", d.agentFile)
 
 	// 其余路径全部交给内嵌前端（静态文件 + SPA 回退）
 	r.NotFound(d.Web.ServeHTTP)

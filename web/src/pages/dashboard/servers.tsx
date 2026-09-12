@@ -1,6 +1,6 @@
 import { CONFIG } from 'src/global-config';
 
-import { BlankView } from 'src/sections/blank/view';
+import { ServersListView } from 'src/sections/servers/view';
 
 // ----------------------------------------------------------------------
 
@@ -11,7 +11,7 @@ export default function Page() {
     <>
       <title>{metadata.title}</title>
 
-      <BlankView title="节点" description="步骤 03 实现：节点列表、新增/编辑表单、一键安装命令。" />
+      <ServersListView />
     </>
   );
 }

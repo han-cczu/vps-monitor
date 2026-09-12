@@ -95,4 +95,9 @@ export const endpoints = {
     signIn: '/api/auth/sign-in',
     password: '/api/auth/password',
   },
+  servers: {
+    root: '/api/servers',
+    byId: (id: number) => `/api/servers/${id}`,
+    token: (id: number) => `/api/servers/${id}/token`,
+  },
 } as const;
