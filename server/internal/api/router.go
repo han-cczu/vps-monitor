@@ -20,6 +20,7 @@ import (
 	"vpsmon/server/internal/audit"
 	"vpsmon/server/internal/auth"
 	"vpsmon/server/internal/config"
+	"vpsmon/server/internal/hub"
 	"vpsmon/server/internal/store"
 )
 
@@ -40,6 +41,10 @@ type Deps struct {
 	TrustedProxies config.TrustedProxies
 	DataDir        string // VM_DATA_DIR：/install.sh 与 /agent/{file} 从 {DataDir}/agent/ 下发
 	PublicURL      string // VM_PUBLIC_URL：拼一键安装命令用，为空时按请求的 Host 推断
+
+	// Hub 是实时状态中心。为 nil 时两个 WS 端点不注册、REST 里的 online 恒为 false，
+	// 单元测试就是这么跑的（hub 的行为由 hub 包自己的测试覆盖）。
+	Hub *hub.Hub
 
 	// verifySem 由 NewRouter 初始化，限制并发密码校验数。
 	verifySem chan struct{}
@@ -65,12 +70,20 @@ func NewRouter(deps Deps) http.Handler {
 
 	r.Use(requestLogger)
 	r.Use(recoverer)
-	r.Use(middleware.Compress(5))
+	r.Use(skipUpgrades(middleware.Compress(5)))
 	r.Use(audit.Middleware)
 
 	r.Route("/api", func(api chi.Router) {
 		api.Get("/health", d.health)
 		api.Post("/auth/sign-in", d.signIn)
+
+		// 两个 WebSocket 端点都不挂 JWT 中间件，各自在协议层鉴权：
+		// agent 用 Authorization: Bearer <agent token>（握手时查 token_hash）；
+		// 浏览器的 WebSocket API 带不了请求头，改用首帧 {"type":"auth","token":JWT}。
+		if d.Hub != nil {
+			api.Method(http.MethodGet, "/agent/ws", d.Hub.AgentHandler())
+			api.Method(http.MethodGet, "/ws", d.Hub.ClientHandler())
+		}
 
 		api.Group(func(protected chi.Router) {
 			protected.Use(d.Tokens.Middleware)
@@ -139,6 +152,31 @@ func requestLogger(next http.Handler) http.Handler {
 }
 
 // recoverer 把 panic 变成统一格式的 500 JSON，并把堆栈按 slog JSON 记下来。
+// skipUpgrades 让一个中间件对 WebSocket 升级请求不生效。
+//
+// 压缩中间件每处理一个请求就从 sync.Pool 里取一个 gzip 编码器，正常请求写完就还回去；
+// 但 WebSocket 升级之后连接被 Hijack 走、一直活到断开，那个编码器也就被占到那时候。
+// 十几条 agent 长连接就是十几个编码器白占着，而 101 响应本身根本没有可压缩的 body。
+func skipUpgrades(mw func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		wrapped := mw(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if isUpgrade(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			wrapped.ServeHTTP(w, r)
+		})
+	}
+}
+
+// isUpgrade 判断这是不是一个协议升级请求。
+// Connection 头允许是 "Upgrade" 之外的列表形式（如 "keep-alive, Upgrade"），要按包含判断。
+func isUpgrade(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket") &&
+		strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade")
+}
+
 // chi 自带的 Recoverer 只写状态码不写 body，堆栈还是带 ANSI 颜色的纯文本，与本项目的日志和错误约定都不一致。
 func recoverer(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -161,7 +199,7 @@ func recoverer(next http.Handler) http.Handler {
 			)
 
 			// WebSocket 升级中的连接已经不归 http 管了
-			if r.Header.Get("Connection") == "Upgrade" {
+			if isUpgrade(r) {
 				return
 			}
 			// 响应已经写出去一部分就不再追加，免得 net/http 报 superfluous WriteHeader

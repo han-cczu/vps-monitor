@@ -55,7 +55,7 @@
 }
 ```
 
-- `proto_version` 是 `proto.Version`（当前 1），服务端用它做兼容判断。
+- `proto_version` 是 `proto.Version`（当前 1）。服务端目前只在版本不一致时记一条 WARN，**不拒绝连接、也不降级**——协议只有一个版本，真要做兼容判断也无从判起。等到真的出第 2 版再定策略。
 - `applied_revision` 是已应用的 sing-box 配置修订号，步骤 11 之前恒为 0。
 - `ipv4` / `ipv6` 是**出口可达性**，不是地址：agent 分别用 `tcp4` / `tcp6` 拨 `1.1.1.1:443` 与 `[2606:4700:4700::1111]:443`，3 秒超时。节点的公网 IP 由服务端从连接的来源地址记（步骤 05）。
 - 采集不到的字符串字段填 `"unknown"`（LXC / OpenVZ 上 `host.Info()` 有些字段就是空的），数值字段填 0，不会因为单项失败整条消息缺席。
@@ -107,11 +107,68 @@
 
 采集与连接是解耦的：采集协程按间隔一直采，没连上就丢弃当前这一帧（累计流量在网卡计数器里，断线期间的量不会丢）。
 
+### 1.7 服务端侧行为（步骤 05）
+
+| 项 | 行为 |
+|---|---|
+| 鉴权 | 握手时读 `Authorization: Bearer <agent token>` → sha256 → 查 `servers.token_hash`。失败一律 401（查库出错也回 401，不给无效 token 多一个信号） |
+| 连上即下发 | 立刻发一条 `config`：`report_interval: 1`、`ping_tasks: []` |
+| 单连接 | 一台节点同时只保留一条连接。新连接进来会把旧的关掉，关闭码 1000、理由 `superseded`。**两个 agent 共用一个 token 会互相踢**，但每条连接活不过 30 秒，退避会一路涨到 60 秒，不会打满 CPU |
+| 沉默超时 | 30 秒没收到任何数据帧就断开（ping 不算数据帧）。正常情况下每秒都有 metrics |
+| 坏消息 | 解不开的 JSON、未知类型只记 WARN 丢弃，不断连接——一条坏消息不该让整台节点掉线 |
+| `public_ip` | 由服务端从连接地址记录（按 `VM_TRUSTED_PROXIES` 决定是否采信 `X-Forwarded-For`），不采信 agent 自报 |
+| `hello` 落库 | 写 `server_host_info`（幂等 upsert），agent 每 5 分钟重发一次 |
+| 在线判定 | **握手成功**即标记在线并把 `last_seen` 置为当前时刻，之后每条 metrics 刷新一次；`last_seen` 距今超过 15 秒 → 离线，每 5 秒扫一轮，所以最坏 20 秒内能看到状态变化。连接断开本身不立刻置离线（重连、滚动重启都会短暂断开，立刻翻状态会让卡片闪）。连上但一条 metrics 都不发的 agent，15–20 秒后照样判离线 |
+| 节点被删除 | 在途的 hello / metrics 不会把已删节点的内存态复活，直接丢弃并记 WARN |
+| token 重置 | `POST /api/servers/{id}/token` 会把该节点在线的 agent 当场断开 |
+
 ## 2. WebSocket · 浏览器 ↔ server
 
-端点：`wss://{面板域名}/api/ws`
+端点：`wss://{面板域名}/api/ws`（开发时 Vite 代理 `/api/ws`，见 `web/vite.config.ts`）
 
-（步骤 05 起填充。）
+### 2.1 鉴权：首帧 `auth`
+
+浏览器的 WebSocket API 没法自定义请求头，带不了 `Authorization`，所以 JWT 走**首帧**：
+
+```json
+{ "type": "auth", "token": "<和 REST 用的同一个 accessToken>" }
+```
+
+- 校验通过：服务端立刻推一帧 `snapshot`（不用等下一个整秒），之后每秒一帧。
+- 5 秒内没收到首帧、首帧不是 `auth`、或 token 无效：关闭连接，**关闭码 4001**，理由 `unauthorized`。
+- 连上之后浏览器不需要再发任何消息；发了也会被丢弃（留给后续步骤扩展订阅指令）。
+- 单帧上限 8 KiB（首帧之外没有别的输入）。
+
+### 2.2 `snapshot`（server → 浏览器，步骤 05）
+
+每秒一帧全量快照。不做增量：十几台节点的全量帧压缩前不到 9 KB，增量协议的复杂度不值当。
+
+```json
+{"type":"snapshot","ts":1757660000,"servers":[
+  {"id":1,"name":"深圳-阿里云-01","region":"CN","group":"","tags":[],"sort":0,
+   "online":true,"last_seen":1757660000,"v4":true,"v6":false,
+   "cpu":3.02,"cores":2,"mem":{"used":458000000,"total":1690000000},"swap":{"used":0},
+   "disk":{"used":9720000000,"total":42000000000},"load":[0.04,0.03,0],
+   "net":{"up":303,"down":169,"out_total":126900000,"in_total":1557000000},
+   "conn":{"tcp":23,"udp":4},"procs":112,"uptime":172800,
+   "expire_at":"2027-09-10","bandwidth":"3Mbps","price":99,"currency":"CNY","cycle":"year",
+   "traffic":null,"ping":[],"core":null}
+]}
+```
+
+| 项 | 说明 |
+|---|---|
+| 顺序 | 按 `sort_order`、`id` 升序，与 `GET /api/servers` 一致 |
+| 字段名 | 刻意比 REST 短（`group` / `sort` / `cycle` / `bandwidth`），每秒一帧，字段名占的字节比数值还多 |
+| 数据来源 | 配置字段来自 `servers` 表（60 秒缓存，增删改会立刻失效）；实时字段来自内存态 |
+| `last_seen` | 服务端**收到** metrics 的时刻（Unix 秒），不是 agent 上报的 `ts`——节点时钟不一定准。握手成功也会把它置为当时时刻。从没连过是 `null` |
+| 掉线的节点 | 保留最后一次的数值（`cpu` / `mem` / `net` 等不归零），前端置灰显示即可 |
+| 没上报过的节点 | 实时字段是零值，`last_seen` 为 `null` |
+| 服务端刚重启 | 启动时会用 `server_host_info` 表预热 `cores` / `mem.total` / `disk.total` / `v4` / `v6`，所以 agent 还没重连也不会显示成 0；真正从没上报过的节点这些字段才是 0 |
+| `traffic` / `ping` / `core` | 本步恒为 `null` / `[]` / `null`，步骤 18 / 09 / 13 填充；前端按可空处理 |
+| 压缩 | `permessage-deflate`（context takeover），两端都协商 |
+
+`ServerView` 定义在 `server/internal/hub/state.go`，不在 `proto` 包里：`proto` 是 agent 与 server 共享的零依赖包，而快照里带着价格、账期这类只属于面板的字段，agent 不该知道。这条 Go ↔ TypeScript 的契约由 `server/internal/hub/testdata/snapshot.json` 的 golden 测试守着，改字段名会先让测试变红。
 
 ## 3. REST
 
@@ -135,14 +192,17 @@
 | POST | `/api/auth/sign-in` | 无 | 登录。body `{ username, password }`（也接受 starter 的 `email` 字段名作为用户名）。200 `{ accessToken, expiresAt, user }`；401 `{ "message": "用户名或密码错误" }`；429 `{ "message": "尝试次数过多，请 N 分钟后再试" }` + `Retry-After` | 02 |
 | GET | `/api/auth/me` | JWT | 当前用户 `{ user }` | 02 |
 | POST | `/api/auth/password` | JWT | 改密码。body `{ oldPassword, newPassword }`：新密码 ≥ 10 个字符、≤ 256 字节、不能与旧密码相同。成功 204；当前密码不对 400 `{ "message": "当前密码错误" }`（不用 401，避免前端把会话清掉）；旧密码连错 5 次后 429 | 02 |
-| GET | `/api/servers` | JWT | 节点列表 `{ servers: [...] }`。每项含实时状态字段 `online` / `last_seen` / `host`，步骤 05 之前分别恒为 `false` / `null` / `null` | 03 |
+| GET | `/api/servers` | JWT | 节点列表 `{ servers: [...] }`。每项含实时状态字段 `online` / `last_seen`（步骤 05 起来自 hub 内存态）与 `host`（agent hello 上报后入库） | 03 |
 | POST | `/api/servers` | JWT | 新建节点。201 `{ server, token, install_command }`；`token` 是明文 agent token，**只在这一次出现** | 03 |
 | GET | `/api/servers/{id}` | JWT | 单个节点 `{ server }`；节点不存在 404 `{ "message": "节点不存在" }` | 03 |
-| PUT | `/api/servers/{id}` | JWT | 全量覆盖可写字段（没传的按缺省值），token 不受影响。200 `{ server }` | 03 |
+| PUT | `/api/servers/{id}` | JWT | 全量覆盖可写字段（没传的按缺省值），token 不受影响。200 `{ server }`，含 `online` / `last_seen` / `host` | 03 |
 | DELETE | `/api/servers/{id}` | JWT | 删除节点，子表靠外键级联删除。204 | 03 |
-| POST | `/api/servers/{id}/token` | JWT | 重置 agent token，旧 token 立刻失效。200 `{ token, install_command }` | 03 |
+| POST | `/api/servers/{id}/token` | JWT | 重置 agent token，旧 token 立刻失效；**在线的 agent 会被当场断开**（鉴权只在握手时做过一次）。200 `{ token, install_command }` | 03 |
+| GET | `/api/agent/ws` | agent token | agent 接入（WebSocket 升级）。`Authorization: Bearer <agent token>`，见 §1；token 不对 401 | 05 |
+| GET | `/api/ws` | 首帧 auth | 浏览器接入（WebSocket 升级），见 §2；鉴权失败关闭码 4001 | 05 |
 | GET | `/install.sh` | 无 | agent 一键安装脚本，见 §3.4 | 03 |
 | GET | `/agent/{file}` | 无 | agent 二进制与卸载脚本，见 §3.4 | 03 |
+| GET | `/agent`、`/agent/` | 无 | 不带文件名，返回纯文本 404（不落到 SPA 回退给 curl 一段 HTML） | 03 |
 
 `expiresAt` 是 token 过期时刻的 Unix 秒。`user` 对象对齐前端 starter 的 `src/auth/types.ts`，`email` 字段放的是用户名（面板没有邮箱概念）：
 

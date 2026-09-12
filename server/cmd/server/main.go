@@ -1,6 +1,7 @@
 // Command server 是面板服务端：汇聚 agent 上报、提供 REST 与 WebSocket、内嵌前端。
 //
 // 步骤 02：配置、SQLite + 迁移、JWT 登录、初始管理员、审计、内嵌前端。
+// 步骤 05：agent 与浏览器的 WebSocket 接入、在线判定、每秒快照广播。
 package main
 
 import (
@@ -20,6 +21,7 @@ import (
 	"vpsmon/server/internal/auth"
 	"vpsmon/server/internal/clock"
 	"vpsmon/server/internal/config"
+	"vpsmon/server/internal/hub"
 	"vpsmon/server/internal/store"
 	"vpsmon/server/web"
 )
@@ -83,6 +85,9 @@ func run() error {
 	limiter := auth.NewLimiter(auth.DefaultMaxFailures, auth.DefaultWindow, auth.DefaultLockout)
 	go limiter.Run(ctx, time.Minute)
 
+	realtime := hub.New(db, tokens)
+	go realtime.Run(ctx)
+
 	handler := api.NewRouter(api.Deps{
 		DB:             db,
 		Tokens:         tokens,
@@ -92,6 +97,7 @@ func run() error {
 		TrustedProxies: cfg.TrustedProxies,
 		DataDir:        cfg.DataDir,
 		PublicURL:      cfg.PublicURL,
+		Hub:            realtime,
 	})
 
 	srv := &http.Server{

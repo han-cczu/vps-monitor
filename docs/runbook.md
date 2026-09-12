@@ -223,6 +223,30 @@ sqlite3 data/vm.db "SELECT ts, actor, action, target_id, ip FROM audit_log WHERE
 
 agent 断线期间照常采集、直接丢弃这一帧，**累计流量不会丢**（读的是网卡计数器）；恢复连接后数据自然接上。
 
+### 节点显示离线 / 状态不刷新（步骤 05）
+
+服务端这边的判定规则：收到 metrics 就算在线；**服务端收到的时刻**距今超过 15 秒判离线，每 5 秒扫一轮，所以 kill 掉 agent 后最坏 20 秒内面板会翻成离线。注意用的不是 agent 上报的 `ts`——节点时钟不准也不会影响判定。
+
+先看服务端日志认不认这台 agent：
+
+```sh
+journalctl -u vps-server -n 100 | grep -E "agent connected|agent disconnected|踢掉"
+```
+
+| 现象 | 原因与处理 |
+|---|---|
+| 没有 `agent connected` | 连接压根没建立，转「agent 连不上面板」那一节 |
+| `agent connected` 之后立刻 `agent disconnected` 且反复 | 多半是**两台机器共用了同一个 token**：一台节点只保留一条连接，新连接会把旧的踢掉（日志里有「踢掉同一节点的旧连接」，被踢方看到的关闭理由是 `superseded`），两边就会互相踢。给第二台单独建节点、拿自己的 token |
+| 面板一直在线但数字不动 | agent 还连着但没在发 metrics。看 agent 日志有没有采集报错；服务端 30 秒收不到任何数据帧会主动断开，届时会出现 `agent disconnected` |
+| 重置 token 后节点掉线 | 预期行为：重置会把在线的 agent 当场断开（鉴权只在握手时做一次）。在那台机器上重跑安装命令即可 |
+| 浏览器页面不动但 `GET /api/servers` 是新的 | 浏览器的 WebSocket 没连上或没通过鉴权。`/api/ws` 要在连上后 5 秒内发 `{"type":"auth","token":"<accessToken>"}`，失败会以关闭码 **4001** 断开 |
+
+反过来手工确认一台节点的实时状态，不用开浏览器：
+
+```sh
+curl -s -H "Authorization: Bearer $JWT" https://面板域名/api/servers   | python3 -c "import sys,json;[print(s['id'],s['name'],s['online'],s['last_seen']) for s in json.load(sys.stdin)['servers']]"
+```
+
 ### agent 的数字对不上
 
 ```sh

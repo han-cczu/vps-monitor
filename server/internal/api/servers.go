@@ -38,7 +38,7 @@ type serverConfigDTO struct {
 	UpdatedAt       int64    `json:"updated_at"`
 }
 
-// serverDTO 是配置加上实时状态。online / last_seen 在步骤 05 接上 hub 之前恒为 false / null。
+// serverDTO 是配置加上实时状态。online / last_seen 来自 hub 的内存态（步骤 05 起）。
 type serverDTO struct {
 	serverConfigDTO
 	Online   bool     `json:"online"`
@@ -88,8 +88,8 @@ func toServerConfigDTO(s *store.Server) serverConfigDTO {
 	}
 }
 
-func toServerDTO(s *store.Server, h *store.HostInfo) serverDTO {
-	dto := serverDTO{serverConfigDTO: toServerConfigDTO(s)}
+func toServerDTO(s *store.Server, h *store.HostInfo, online bool, lastSeen *int64) serverDTO {
+	dto := serverDTO{serverConfigDTO: toServerConfigDTO(s), Online: online, LastSeen: lastSeen}
 	if h != nil {
 		dto.Host = &hostDTO{
 			Hostname:     h.Hostname,
@@ -131,7 +131,8 @@ func (d *Deps) listServers(w http.ResponseWriter, r *http.Request) {
 		if h, ok := hosts[s.ID]; ok {
 			host = &h
 		}
-		out = append(out, toServerDTO(s, host))
+		online, lastSeen := d.Hub.Status(s.ID)
+		out = append(out, toServerDTO(s, host, online, lastSeen))
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"servers": out})
@@ -153,7 +154,8 @@ func (d *Deps) getServer(w http.ResponseWriter, r *http.Request) {
 		host = nil
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"server": toServerDTO(s, host)})
+	online, lastSeen := d.Hub.Status(s.ID)
+	writeJSON(w, http.StatusOK, map[string]any{"server": toServerDTO(s, host, online, lastSeen)})
 }
 
 // createServer 处理 POST /api/servers。token 明文只在这里返回一次。
@@ -184,8 +186,11 @@ func (d *Deps) createServer(w http.ResponseWriter, r *http.Request) {
 	audit.Record(r.Context(), d.DB, "server.create", "server", strconv.FormatInt(s.ID, 10), nil, after)
 	slog.Info("server created", "server_id", s.ID, "name", s.Name)
 
+	d.Hub.InvalidateConfig()
+
+	// 刚创建的节点还没有 agent 连过，online=false、host=null 是事实，不是占位。
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"server":          toServerDTO(s, nil),
+		"server":          toServerDTO(s, nil, false, nil),
 		"token":           token,
 		"install_command": installCommand(d.publicBase(r), token),
 	})
@@ -222,7 +227,21 @@ func (d *Deps) updateServer(w http.ResponseWriter, r *http.Request) {
 		toServerConfigDTO(before), toServerConfigDTO(updated))
 	slog.Info("server updated", "server_id", updated.ID, "name", updated.Name)
 
-	writeJSON(w, http.StatusOK, map[string]any{"server": toServerDTO(updated, nil)})
+	d.Hub.InvalidateConfig()
+
+	// 这里要把 host 一起查出来：之前写死 nil，PUT 的返回体和 GET 对不上，
+	// 前端按同一个类型用这个返回值，会把已有的 host 抹掉。
+	host, err := d.DB.GetHostInfo(r.Context(), updated.ID)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			serverError(w, "get host info", err)
+			return
+		}
+		host = nil
+	}
+	online, lastSeen := d.Hub.Status(updated.ID)
+
+	writeJSON(w, http.StatusOK, map[string]any{"server": toServerDTO(updated, host, online, lastSeen)})
 }
 
 // deleteServer 处理 DELETE /api/servers/{id}。子表靠外键级联删除。
@@ -245,6 +264,10 @@ func (d *Deps) deleteServer(w http.ResponseWriter, r *http.Request) {
 	audit.Record(r.Context(), d.DB, "server.delete", "server", strconv.FormatInt(before.ID, 10),
 		toServerConfigDTO(before), nil)
 	slog.Info("server deleted", "server_id", before.ID, "name", before.Name)
+
+	d.Hub.Disconnect(before.ID, "server deleted")
+	d.Hub.Remove(before.ID)
+	d.Hub.InvalidateConfig()
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -275,6 +298,9 @@ func (d *Deps) resetServerToken(w http.ResponseWriter, r *http.Request) {
 	// 审计只记"换过了"，前后都不含 token 与哈希
 	audit.Record(r.Context(), d.DB, "server.token_reset", "server", strconv.FormatInt(s.ID, 10), nil, nil)
 	slog.Info("server token reset", "server_id", s.ID, "name", s.Name)
+
+	// 旧 token 立即作废，连着的 agent 也要踢下去——鉴权只在握手时做过一次。
+	d.Hub.Disconnect(s.ID, "token reset")
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"token":           token,

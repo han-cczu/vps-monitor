@@ -24,7 +24,7 @@ func PrincipalFromContext(ctx context.Context) (Principal, bool) {
 // 成功则把 Principal 放进请求上下文。
 func (t *Tokens) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw := bearerToken(r.Header.Get("Authorization"))
+		raw := BearerToken(r.Header.Get("Authorization"))
 		if raw == "" {
 			unauthorized(w)
 			return
@@ -38,8 +38,9 @@ func (t *Tokens) Middleware(next http.Handler) http.Handler {
 	})
 }
 
-// bearerToken 从 "Bearer xxx" 里取出 xxx；scheme 大小写不敏感。
-func bearerToken(header string) string {
+// BearerToken 从 "Bearer xxx" 里取出 xxx；scheme 大小写不敏感。
+// hub 的 agent 接入也用它读 agent token。
+func BearerToken(header string) string {
 	const prefix = "bearer "
 	if len(header) <= len(prefix) || !strings.EqualFold(header[:len(prefix)], prefix) {
 		return ""
