@@ -10,10 +10,10 @@ import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import InputAdornment from '@mui/material/InputAdornment';
 
-import { useRouter } from 'src/routes/hooks';
+import { useRouter, useSearchParams } from 'src/routes/hooks';
 
 import { Iconify } from 'src/components/iconify';
-import { Form, Field, schemaUtils } from 'src/components/hook-form';
+import { Form, Field } from 'src/components/hook-form';
 
 import { useAuthContext } from '../../hooks';
 import { getErrorMessage } from '../../utils';
@@ -24,12 +24,10 @@ import { signInWithPassword } from '../../context/jwt';
 
 export type SignInSchemaType = z.infer<typeof SignInSchema>;
 
+// 面板按用户名登录（初始管理员是 admin），不是邮箱；长度规则由服务端说了算
 export const SignInSchema = z.object({
-  email: schemaUtils.email(),
-  password: z
-    .string()
-    .min(1, { message: 'Password is required!' })
-    .min(6, { message: 'Password must be at least 6 characters!' }),
+  username: z.string().trim().min(1, { error: '请输入用户名' }),
+  password: z.string().min(1, { error: '请输入密码' }),
 });
 
 // ----------------------------------------------------------------------
@@ -37,14 +35,19 @@ export const SignInSchema = z.object({
 export function JwtSignInView() {
   const router = useRouter();
 
+  const searchParams = useSearchParams();
+
   const showPassword = useBoolean();
 
   const { checkUserSession } = useAuthContext();
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // 会话到期被踢回来时带 ?reason=expired
+  const sessionExpired = searchParams.get('reason') === 'expired';
+
   const defaultValues: SignInSchemaType = {
-    email: '',
+    username: '',
     password: '',
   };
 
@@ -60,43 +63,44 @@ export function JwtSignInView() {
 
   const onSubmit = handleSubmit(async (data) => {
     try {
-      await signInWithPassword({ email: data.email, password: data.password });
+      setErrorMessage(null);
+      await signInWithPassword({ username: data.username, password: data.password });
       await checkUserSession?.();
 
       router.refresh();
     } catch (error) {
       console.error(error);
-      const feedbackMessage = getErrorMessage(error);
-      setErrorMessage(feedbackMessage);
+      setErrorMessage(getErrorMessage(error));
     }
   });
 
   const renderForm = () => (
     <Box sx={{ gap: 3, display: 'flex', flexDirection: 'column' }}>
-      <Field.Text name="email" label="Email address" slotProps={{ inputLabel: { shrink: true } }} />
+      <Field.Text
+        name="username"
+        label="用户名"
+        autoComplete="username"
+        slotProps={{ inputLabel: { shrink: true } }}
+      />
 
-      <Box sx={{ gap: 1.5, display: 'flex', flexDirection: 'column' }}>
-        <Field.Text
-          name="password"
-          label="Password"
-          placeholder="6+ characters"
-          type={showPassword.value ? 'text' : 'password'}
-          slotProps={{
-            inputLabel: { shrink: true },
-            input: {
-              endAdornment: (
-                <InputAdornment position="end">
-                  <IconButton onClick={showPassword.onToggle} edge="end">
-                    <Iconify
-                      icon={showPassword.value ? 'solar:eye-bold' : 'solar:eye-closed-bold'}
-                    />
-                  </IconButton>
-                </InputAdornment>
-              ),
-            },
-          }}
-        />
-      </Box>
+      <Field.Text
+        name="password"
+        label="密码"
+        type={showPassword.value ? 'text' : 'password'}
+        autoComplete="current-password"
+        slotProps={{
+          inputLabel: { shrink: true },
+          input: {
+            endAdornment: (
+              <InputAdornment position="end">
+                <IconButton onClick={showPassword.onToggle} edge="end">
+                  <Iconify icon={showPassword.value ? 'solar:eye-bold' : 'solar:eye-closed-bold'} />
+                </IconButton>
+              </InputAdornment>
+            ),
+          },
+        }}
+      />
 
       <Button
         fullWidth
@@ -105,16 +109,26 @@ export function JwtSignInView() {
         type="submit"
         variant="contained"
         loading={isSubmitting}
-        loadingIndicator="Sign in..."
+        loadingIndicator="登录中…"
       >
-        Sign in
+        登录
       </Button>
     </Box>
   );
 
   return (
     <>
-      <FormHead title="Sign in to your account" sx={{ textAlign: { xs: 'center', md: 'left' } }} />
+      <FormHead
+        title="登录"
+        description="使用管理员账号登录面板"
+        sx={{ textAlign: { xs: 'center', md: 'left' } }}
+      />
+
+      {sessionExpired && !errorMessage && (
+        <Alert severity="info" sx={{ mb: 3 }}>
+          登录已过期，请重新登录。
+        </Alert>
+      )}
 
       {!!errorMessage && (
         <Alert severity="error" sx={{ mb: 3 }}>

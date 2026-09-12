@@ -42,7 +42,7 @@ export function SignOutButton({ onClose, sx, ...other }: Props) {
       sx={sx}
       {...other}
     >
-      Logout
+      退出登录
     </Button>
   );
 }

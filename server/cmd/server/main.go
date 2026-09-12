@@ -1,13 +1,12 @@
 // Command server 是面板服务端：汇聚 agent 上报、提供 REST 与 WebSocket、内嵌前端。
 //
-// 步骤 01 只做最小可运行骨架：健康检查 + 内嵌前端的 SPA 回退。
+// 步骤 02：配置、SQLite + 迁移、JWT 登录、初始管理员、审计、内嵌前端。
 package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"io/fs"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -15,10 +14,13 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	_ "time/tzdata" // 静态二进制 / 精简镜像里也能加载 VM_TZ
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-
+	"vpsmon/server/internal/api"
+	"vpsmon/server/internal/auth"
+	"vpsmon/server/internal/clock"
+	"vpsmon/server/internal/config"
+	"vpsmon/server/internal/store"
 	"vpsmon/server/web"
 )
 
@@ -26,109 +28,122 @@ import (
 var version = "dev"
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: parseLevel(env("VM_LOG_LEVEL", "info")),
-	})))
+	// 先装一个 info 级别的 JSON logger，配置解析出错也能按同样格式打出来
+	setLogger(slog.LevelInfo)
 
-	listen := env("VM_LISTEN", ":9000")
+	if err := run(); err != nil {
+		slog.Error("server exited with error", "err", err)
+		os.Exit(1)
+	}
+}
 
-	srv := &http.Server{
-		Addr:              listen,
-		Handler:           newRouter(),
-		ReadHeaderTimeout: 10 * time.Second,
+func run() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	level, _ := config.ParseLogLevel(cfg.LogLevel)
+	setLogger(level)
+
+	if err := os.MkdirAll(cfg.DataDir, config.DataDirPerm); err != nil {
+		return fmt.Errorf("创建数据目录 %s: %w", cfg.DataDir, err)
+	}
+
+	loc, err := cfg.Location()
+	if err != nil {
+		return err
+	}
+	clock.SetLocation(loc)
+
+	secret, err := config.EnsureJWTSecret(cfg)
+	if err != nil {
+		return err
+	}
+	tokens, err := auth.NewTokens(secret, auth.TokenTTL)
+	if err != nil {
+		return err
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	db, err := store.Open(cfg.DBPath())
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := db.Migrate(ctx); err != nil {
+		return err
+	}
+	if err := auth.EnsureAdmin(ctx, db); err != nil {
+		return err
+	}
+
+	limiter := auth.NewLimiter(auth.DefaultMaxFailures, auth.DefaultWindow, auth.DefaultLockout)
+	go limiter.Run(ctx, time.Minute)
+
+	handler := api.NewRouter(api.Deps{
+		DB:             db,
+		Tokens:         tokens,
+		Limiter:        limiter,
+		Version:        version,
+		Web:            web.Handler(),
+		TrustedProxies: cfg.TrustedProxies,
+	})
+
+	srv := &http.Server{
+		Addr:              cfg.Listen,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("server starting", "listen", listen, "version", version)
+		slog.Info("server starting",
+			"listen", cfg.Listen,
+			"version", version,
+			"data_dir", cfg.DataDir,
+			"tz", cfg.TZ,
+			"public_url", cfg.PublicURL,
+			"trusted_proxies", describeProxies(cfg.TrustedProxies),
+		)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("listen failed", "err", err)
-			stop()
+			errCh <- err
 		}
+		close(errCh)
 	}()
 
-	<-ctx.Done()
-	slog.Info("server stopping")
+	select {
+	case err := <-errCh:
+		if err != nil {
+			return fmt.Errorf("listen %s: %w", cfg.Listen, err)
+		}
+	case <-ctx.Done():
+	}
 
+	slog.Info("server stopping")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		slog.Error("shutdown failed", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("shutdown: %w", err)
 	}
 	slog.Info("server stopped")
+	return nil
 }
 
-func newRouter() http.Handler {
-	r := chi.NewRouter()
-	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
-	r.Use(middleware.Recoverer)
-
-	r.Get("/api/health", handleHealth)
-
-	// 其余路径交给内嵌前端，前端路由用 SPA 回退。
-	r.NotFound(spaHandler(web.FS()))
-
-	return r
-}
-
-func handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "version": version})
-}
-
-// spaHandler 提供内嵌前端：命中文件就返回文件，没命中就回退到 index.html；
-// /api 下没匹配到路由的一律返回 JSON 404，不要回退成 HTML。
-func spaHandler(dist fs.FS) http.HandlerFunc {
-	files := http.FileServer(http.FS(dist))
-
-	return func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") {
-			writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
-			return
-		}
-
-		name := strings.TrimPrefix(r.URL.Path, "/")
-		if name != "" {
-			if f, err := dist.Open(name); err == nil {
-				_ = f.Close()
-				files.ServeHTTP(w, r)
-				return
-			}
-		}
-
-		index, err := fs.ReadFile(dist, "index.html")
-		if err != nil {
-			http.Error(w, "frontend not built", http.StatusNotFound)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-cache")
-		_, _ = w.Write(index)
+// describeProxies 把可信代理配置写成一句人能看懂的话，放进启动日志方便核对。
+func describeProxies(tp config.TrustedProxies) string {
+	switch {
+	case len(tp.CIDRs) > 0:
+		return "cidr:" + strings.Join(tp.CIDRs, ",")
+	case tp.Count > 0:
+		return fmt.Sprintf("hops:%d", tp.Count)
+	default:
+		return "direct (客户端 IP 取 TCP 连接地址，不采信代理头)"
 	}
 }
 
-func writeJSON(w http.ResponseWriter, code int, body any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(code)
-	if err := json.NewEncoder(w).Encode(body); err != nil {
-		slog.Error("write json failed", "err", err)
-	}
-}
-
-func env(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
-}
-
-func parseLevel(s string) slog.Level {
-	var lv slog.Level
-	if err := lv.UnmarshalText([]byte(s)); err != nil {
-		return slog.LevelInfo
-	}
-	return lv
+func setLogger(level slog.Level) {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})))
 }

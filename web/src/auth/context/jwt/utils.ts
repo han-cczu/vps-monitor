@@ -51,19 +51,29 @@ export function isValidToken(accessToken: string) {
 
 // ----------------------------------------------------------------------
 
-export function tokenExpired(exp: number) {
-  const currentTime = Date.now();
-  const timeLeft = exp * 1000 - currentTime;
+/** setTimeout 的延时上限（约 24.8 天），再大会被当成 0 立刻触发 */
+const MAX_TIMEOUT_MS = 2_147_483_647;
+
+/**
+ * 到 exp 那一刻把会话清掉并回登录页（带 reason=expired，登录页据此提示"登录已过期"）。
+ * 只在 sessionStorage 里仍是同一个 token 时才动手：用户已经退出、或重新登录换了新 token，就什么都不做。
+ */
+export function tokenExpired(exp: number, accessToken: string) {
+  const timeLeft = exp * 1000 - Date.now();
+  const delay = Math.min(Math.max(timeLeft, 0), MAX_TIMEOUT_MS);
 
   setTimeout(() => {
     try {
+      if (sessionStorage.getItem(JWT_STORAGE_KEY) !== accessToken) {
+        return;
+      }
       sessionStorage.removeItem(JWT_STORAGE_KEY);
-      window.location.href = paths.auth.signIn;
+      window.location.href = `${paths.auth.signIn}?reason=expired`;
     } catch (error) {
       console.error('Error during token expiration:', error);
       throw error;
     }
-  }, timeLeft);
+  }, delay);
 }
 
 // ----------------------------------------------------------------------
@@ -75,10 +85,10 @@ export async function setSession(accessToken: string | null) {
 
       axios.defaults.headers.common.Authorization = `Bearer ${accessToken}`;
 
-      const decodedToken = jwtDecode(accessToken); // ~3 days by minimals server
+      const decodedToken = jwtDecode(accessToken); // 服务端签发，有效期 12 小时
 
       if (decodedToken && 'exp' in decodedToken) {
-        tokenExpired(decodedToken.exp);
+        tokenExpired(decodedToken.exp, accessToken);
       } else {
         throw new Error('Invalid access token!');
       }

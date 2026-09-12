@@ -9,29 +9,36 @@ import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import InputAdornment from '@mui/material/InputAdornment';
 
+import axios, { endpoints } from 'src/lib/axios';
+
 import { toast } from 'src/components/snackbar';
 import { Iconify } from 'src/components/iconify';
 import { Form, Field } from 'src/components/hook-form';
 
+import { getErrorMessage } from 'src/auth/utils';
+
 // ----------------------------------------------------------------------
 
-export type ChangePassWordSchemaType = z.infer<typeof ChangePassWordSchema>;
+/** 与服务端 POST /api/auth/password 的规则一致：新密码至少 10 位 */
+const MIN_PASSWORD_LENGTH = 10;
 
-export const ChangePassWordSchema = z
+export type ChangePasswordSchemaType = z.infer<typeof ChangePasswordSchema>;
+
+export const ChangePasswordSchema = z
   .object({
-    oldPassword: z
+    oldPassword: z.string().min(1, { error: '请输入当前密码' }),
+    newPassword: z
       .string()
-      .min(1, { error: 'Password is required!' })
-      .min(6, { error: 'Password must be at least 6 characters!' }),
-    newPassword: z.string().min(1, { error: 'New password is required!' }),
-    confirmNewPassword: z.string().min(1, { error: 'Confirm password is required!' }),
+      .min(1, { error: '请输入新密码' })
+      .min(MIN_PASSWORD_LENGTH, { error: `新密码至少 ${MIN_PASSWORD_LENGTH} 位` }),
+    confirmNewPassword: z.string().min(1, { error: '请再输入一次新密码' }),
   })
   .refine((val) => val.oldPassword !== val.newPassword, {
-    error: 'New password must be different than old password',
+    error: '新密码不能与当前密码相同',
     path: ['newPassword'],
   })
   .refine((val) => val.newPassword === val.confirmNewPassword, {
-    error: 'Passwords do not match!',
+    error: '两次输入的新密码不一致',
     path: ['confirmNewPassword'],
   });
 
@@ -40,7 +47,7 @@ export const ChangePassWordSchema = z
 export function AccountChangePassword() {
   const showPassword = useBoolean();
 
-  const defaultValues: ChangePassWordSchemaType = {
+  const defaultValues: ChangePasswordSchemaType = {
     oldPassword: '',
     newPassword: '',
     confirmNewPassword: '',
@@ -48,7 +55,7 @@ export function AccountChangePassword() {
 
   const methods = useForm({
     mode: 'all',
-    resolver: zodResolver(ChangePassWordSchema),
+    resolver: zodResolver(ChangePasswordSchema),
     defaultValues,
   });
 
@@ -60,14 +67,25 @@ export function AccountChangePassword() {
 
   const onSubmit = handleSubmit(async (data) => {
     try {
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await axios.post(endpoints.auth.password, {
+        oldPassword: data.oldPassword,
+        newPassword: data.newPassword,
+      });
       reset();
-      toast.success('Update success!');
-      console.info('DATA', data);
+      toast.success('密码已更新');
     } catch (error) {
       console.error(error);
+      toast.error(getErrorMessage(error));
     }
   });
+
+  const renderToggle = () => (
+    <InputAdornment position="end">
+      <IconButton onClick={showPassword.onToggle} edge="end">
+        <Iconify icon={showPassword.value ? 'solar:eye-bold' : 'solar:eye-closed-bold'} />
+      </IconButton>
+    </InputAdornment>
+  );
 
   return (
     <Form methods={methods} onSubmit={onSubmit}>
@@ -82,42 +100,20 @@ export function AccountChangePassword() {
         <Field.Text
           name="oldPassword"
           type={showPassword.value ? 'text' : 'password'}
-          label="Old password"
-          slotProps={{
-            input: {
-              endAdornment: (
-                <InputAdornment position="end">
-                  <IconButton onClick={showPassword.onToggle} edge="end">
-                    <Iconify
-                      icon={showPassword.value ? 'solar:eye-bold' : 'solar:eye-closed-bold'}
-                    />
-                  </IconButton>
-                </InputAdornment>
-              ),
-            },
-          }}
+          label="当前密码"
+          autoComplete="current-password"
+          slotProps={{ input: { endAdornment: renderToggle() } }}
         />
 
         <Field.Text
           name="newPassword"
-          label="New password"
+          label="新密码"
           type={showPassword.value ? 'text' : 'password'}
-          slotProps={{
-            input: {
-              endAdornment: (
-                <InputAdornment position="end">
-                  <IconButton onClick={showPassword.onToggle} edge="end">
-                    <Iconify
-                      icon={showPassword.value ? 'solar:eye-bold' : 'solar:eye-closed-bold'}
-                    />
-                  </IconButton>
-                </InputAdornment>
-              ),
-            },
-          }}
+          autoComplete="new-password"
+          slotProps={{ input: { endAdornment: renderToggle() } }}
           helperText={
             <Box component="span" sx={{ gap: 0.5, display: 'flex', alignItems: 'center' }}>
-              <Iconify icon="solar:info-circle-bold" width={16} /> Password must be minimum 6+
+              <Iconify icon="solar:info-circle-bold" width={16} /> 至少 {MIN_PASSWORD_LENGTH} 位
             </Box>
           }
         />
@@ -125,24 +121,13 @@ export function AccountChangePassword() {
         <Field.Text
           name="confirmNewPassword"
           type={showPassword.value ? 'text' : 'password'}
-          label="Confirm new password"
-          slotProps={{
-            input: {
-              endAdornment: (
-                <InputAdornment position="end">
-                  <IconButton onClick={showPassword.onToggle} edge="end">
-                    <Iconify
-                      icon={showPassword.value ? 'solar:eye-bold' : 'solar:eye-closed-bold'}
-                    />
-                  </IconButton>
-                </InputAdornment>
-              ),
-            },
-          }}
+          label="确认新密码"
+          autoComplete="new-password"
+          slotProps={{ input: { endAdornment: renderToggle() } }}
         />
 
         <Button type="submit" variant="contained" loading={isSubmitting} sx={{ ml: 'auto' }}>
-          Save changes
+          保存
         </Button>
       </Card>
     </Form>

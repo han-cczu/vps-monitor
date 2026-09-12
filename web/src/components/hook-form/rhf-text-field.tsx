@@ -51,12 +51,15 @@ export function RHFTextField({
           slotProps={{
             ...slotProps,
             htmlInput: {
+              // 默认关掉自动填充；登录/改密这类字段要靠密码管理器，
+              // 由调用方传 autoComplete 覆盖（放在展开之前才覆盖得掉）。
+              autoComplete: 'new-password',
+              ...(other.autoComplete ? { autoComplete: other.autoComplete } : {}),
               ...slotProps?.htmlInput,
               ...(isNumberType && {
                 inputMode: 'decimal',
                 pattern: '[0-9]*\\.?[0-9]*',
               }),
-              autoComplete: 'new-password', // Disable autocomplete and autofill
             },
           }}
           {...other}

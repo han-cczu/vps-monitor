@@ -27,7 +27,11 @@ export const authRoutes: RouteObject[] = [
         path: 'sign-in',
         element: (
           <GuestGuard>
-            <AuthSplitLayout slotProps={{ section: { title: 'VPS Monitor' } }}>
+            <AuthSplitLayout
+              slotProps={{
+                section: { title: 'VPS Monitor', subtitle: 'VPS 监控与节点管理面板' },
+              }}
+            >
               <SignInPage />
             </AuthSplitLayout>
           </GuestGuard>

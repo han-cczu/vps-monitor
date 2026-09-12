@@ -1,7 +1,9 @@
 import type { RouteObject } from 'react-router';
 
-import { Outlet } from 'react-router';
 import { lazy, Suspense } from 'react';
+import { Outlet, Navigate } from 'react-router';
+
+import { paths } from 'src/routes/paths';
 
 import { DashboardLayout } from 'src/layouts/dashboard';
 
@@ -18,7 +20,7 @@ const ServersPage = lazy(() => import('src/pages/dashboard/servers'));
 const ProxyPage = lazy(() => import('src/pages/dashboard/proxy'));
 const SubscribersPage = lazy(() => import('src/pages/dashboard/subscribers'));
 const AlertsPage = lazy(() => import('src/pages/dashboard/alerts'));
-const SettingsPage = lazy(() => import('src/pages/dashboard/settings'));
+const SettingsAccountPage = lazy(() => import('src/pages/dashboard/settings/account'));
 
 // ----------------------------------------------------------------------
 
@@ -47,7 +49,14 @@ export const dashboardRoutes: RouteObject[] = [
       { path: 'proxy', element: <ProxyPage /> },
       { path: 'subscribers', element: <SubscribersPage /> },
       { path: 'alerts', element: <AlertsPage /> },
-      { path: 'settings', element: <SettingsPage /> },
+      {
+        path: 'settings',
+        children: [
+          // 设置目前只有"账号"一页，进来直接跳过去；步骤 20 加 TOTP / 审计 / 备份后再做总览
+          { index: true, element: <Navigate to={paths.dashboard.settings.account} replace /> },
+          { path: 'account', element: <SettingsAccountPage /> },
+        ],
+      },
     ],
   },
 ];

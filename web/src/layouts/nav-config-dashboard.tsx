@@ -46,7 +46,9 @@ export const navData: NavSectionProps['data'] = [
     subheader: '系统',
     items: [
       { title: '告警', path: paths.dashboard.alerts.root, icon: ICONS.alerts },
-      { title: '设置', path: paths.dashboard.settings.root, icon: ICONS.settings },
+      // deepMatch：/dashboard/settings 会重定向到 /dashboard/settings/account，
+      // 不开子路径匹配的话侧栏这一项永远不会高亮
+      { title: '设置', path: paths.dashboard.settings.root, icon: ICONS.settings, deepMatch: true },
     ],
   },
 ];
