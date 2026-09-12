@@ -40,6 +40,7 @@ build-web: ## 构建前端并放到 server/web/dist 供 go:embed 取用
 	cd web && npm run build
 	rm -rf $(EMBED_DIST)
 	mkdir -p $(EMBED_DIST)
+	touch $(EMBED_DIST)/.gitkeep
 	cp -r web/dist/. $(EMBED_DIST)/
 
 build-server: build-web ## 构建内嵌前端的服务端二进制

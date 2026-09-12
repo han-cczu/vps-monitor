@@ -110,4 +110,16 @@ func (r *Registry) Get(id) *ServerState / Update(id, func(*ServerState)) / Snaps
 
 ## 9. 偏离记录
 
-（开工前为空）
+> 以下三条是 2026-09-12 开工准备时定的，代码已落地（提交见该日 `chore(step-05)`），主体实现尚未开始。
+
+1. **WebSocket 库用 `coder/websocket`，不用本文 §4.2 / §7 写的 `gorilla/websocket`。** 步骤 04 的偏离记录第 4 条已经定了两端统一用 `coder/websocket`，agent 侧就是这么实现的；服务端跟着走，避免一个项目里两套 WS 库。`server/go.mod` 已加 `github.com/coder/websocket v1.8.15`，并删掉零引用的 `github.com/gorilla/websocket v1.5.3 // indirect`（那是步骤 02 预留的占位）。写 `hub/agent.go` 时的 API 对应关系：`Upgrader{}` → `websocket.Accept(w, r, &websocket.AcceptOptions{CompressionMode: websocket.CompressionContextTakeover, ...})`；踢旧连接的 `CloseMessage` → `conn.Close(code, reason)`；§7 提到的 `EnableCompression` 协商在 coder 这边由 `CompressionMode` 控制，agent 侧已经在用（`transport/client.go`）。
+
+2. **`server/go.mod` 补上 `require vpsmon/proto v0.0.0`。** 此前只有 `replace vpsmon/proto => ../proto` 而没有 require 行（步骤 02 拆分 require 块时丢的），而服务端代码至今一次都没 import 过 proto——hub 一 import 就会编译失败。顺带跑了 `go work sync`，它把 agent 的 `golang.org/x/sys` 从 v0.46.0 提到 v0.48.0 与 server 对齐，并把 `stretchr/testify` 显式化为 indirect。**注意这是依赖版本的实际变更**：工作区构建本来就按 MVS 取高版本解析，`go work sync` 只是让 `agent/go.mod` 与实际构建结果一致，不再出现"模块声明 v0.46.0、工作区里编的是 v0.48.0"的错位。三模块 `go vet` / `go test` / 两架构交叉编译已复验通过。
+
+3. **内嵌前端的占位机制改掉了（覆盖步骤 01 偏离记录第 9 条）。** 原做法是把占位 `index.html` 提交进 `server/web/dist/`（`.gitignore` 用 `!/server/web/dist/index.html` 反选）。问题是 `make build-web` 产出的真入口和这个被跟踪的占位文件是同一个路径，**任何一次 `git checkout` 都会把真入口静默盖回占位页**，而 `git status` 干净、`go build` 成功，故障只在浏览器里才暴露——2026-09-12 核验时仓库正处于这个状态（assets 是真产物、index.html 是占位页）。新做法：
+
+   - `server/web/dist/` 只跟踪一个 `.gitkeep`，给 `//go:embed all:dist` 留个匹配目标（`all:` 前缀会匹配点开头的文件，实测只有 `.gitkeep` 时编译通过）；构建产物一律不进版本库
+   - 占位页移到 `server/web/placeholder.html` 单独 `//go:embed`，`handlerFor` 读不到 `dist/index.html` 时回退到它（原来是返回 404 `frontend not built`，现在保持步骤 01 那个中文提示页的行为）
+   - `Makefile` 的 `build-web` 在 `rm -rf` 重建 dist 后补回 `.gitkeep`
+
+   两种状态都实测过：dist 只有 `.gitkeep` 时（全新 clone）编译通过、SPA 路由下发 394 字节占位页；跑完前端构建后下发 756 字节真入口，且引用的 `assets/index-*.js` 返回 200。

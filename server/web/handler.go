@@ -24,12 +24,17 @@ func init() {
 //
 // 带 hash 的 assets/* 打上一年的 immutable 缓存；index.html 永远 no-cache，
 // 这样发新版后浏览器一刷新就拿到新的资源清单。
+//
+// 没跑过前端构建时 dist 里没有 index.html，回退到 placeholder.html 的提示页。
 func Handler() http.Handler {
-	return handlerFor(FS())
+	return handlerFor(FS(), placeholder)
 }
 
-func handlerFor(dist fs.FS) http.Handler {
-	index, indexErr := fs.ReadFile(dist, "index.html")
+func handlerFor(dist fs.FS, fallback []byte) http.Handler {
+	index, err := fs.ReadFile(dist, "index.html")
+	if err != nil {
+		index = fallback
+	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -49,10 +54,6 @@ func handlerFor(dist fs.FS) http.Handler {
 			}
 		}
 
-		if indexErr != nil {
-			http.Error(w, "frontend not built", http.StatusNotFound)
-			return
-		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.WriteHeader(http.StatusOK)
