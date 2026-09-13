@@ -18,6 +18,9 @@ npm-debug.log*
 
 # 运行时数据
 /data/
+# 部署目录：compose 起来之后这里会有库、jwt.secret、备份和填好的 .env
+/deploy/data/
+/deploy/.env
 *.db
 *.db-shm
 *.db-wal

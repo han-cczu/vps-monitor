@@ -41,6 +41,7 @@ npm i --cache ../.npm
 | `VM_JWT_SECRET` | 空 | JWT 签名密钥，至少 32 字节；为空则首次启动随机生成并写入 `{VM_DATA_DIR}/jwt.secret`（权限 0600），之后每次启动读它 | 02 |
 | `VM_TZ` | `Asia/Shanghai` | 业务时区，账期与"每日 00:00"类任务按它算；二进制内嵌了 tzdata，精简镜像里也能用 | 02 |
 | `VM_TRUSTED_PROXIES` | 空 | 前面有几层可信反向代理。**留空 = 直连**，客户端 IP 只认 TCP 连接地址，所有代理头一概不信。详见下一节 | 02 |
+| `VM_AGENT_DIST` | 空 | 镜像自带的 agent 产物目录（镜像里是 `/app/agent-dist`）。启动时同步到 `{VM_DATA_DIR}/agent/`，于是「升级镜像 = 升级节点能下载到的 agent」。本地开发不设它，同步整个跳过 | 07 |
 
 ### VM_TRUSTED_PROXIES：让限速和审计拿到真实 IP
 
@@ -159,17 +160,139 @@ make build-server   # 内嵌前端，产出 dist/server/vps-server
 make build-agent    # 产出 dist/agent/vps-agent-linux-{amd64,arm64}
 ```
 
+发布用的镜像（构建上下文是仓库根目录，不是 deploy/）：
+
+```sh
+docker build -f deploy/Dockerfile -t vps-monitor-server:dev --build-arg VERSION=v0.1.0 .
+```
+
+镜像里同时带上两个架构的 agent 二进制与安装脚本，服务端启动时同步进数据卷。
+正式发版由 `.github/workflows/release.yml` 在推 `v*` tag 时自动构建并推到 GHCR。
+
 ## 3. 部署
 
-（步骤 07 填充。届时记得把 `VM_TRUSTED_PROXIES` 一起写进 compose 的环境变量。）
+面板以两个容器跑：`server`（Go，内嵌前端）和 `caddy`（反代 + 自动 HTTPS）。
+只有 Caddy 对外开 80/443，`server` 只在 compose 的内部网络里，宿主上访问不到 9000。
+
+### 首次安装
+
+前提：一台能装 Docker 的机器、一个已经把 A 记录解析过来的域名、80/443 放行。
+
+```sh
+# 1. 装 Docker（官方脚本，Debian / Ubuntu 都行）
+curl -fsSL https://get.docker.com | sh
+
+# 2. 把 deploy/ 放到机器上
+mkdir -p /opt/vps-monitor && cd /opt/vps-monitor
+# 从仓库拷 docker-compose.yml、Caddyfile、.env.example、backup.sh 过来
+
+# 3. 填配置
+cp .env.example .env
+chmod 600 .env
+openssl rand -hex 32          # 把输出填进 .env 的 VM_JWT_SECRET
+vi .env                       # 再填 PANEL_DOMAIN 与 SERVER_IMAGE
+
+# 4. 起
+docker compose up -d
+docker compose logs -f server
+```
+
+日志里出现 `initial admin password (printed only once)` 那一行就是初始密码，**只打印这一次**。
+拿它登录 `https://你的域名`，登录后到「设置 → 账号」改掉。
+
+证书由 Caddy 自动签发续期，第一次访问可能要等几秒。
+
+### 升级
+
+```sh
+cd /opt/vps-monitor
+docker compose pull
+docker compose up -d
+```
+
+数据在 `./data`（bind mount），升级不会动它；数据库迁移在服务端启动时自动跑。
+agent 也会跟着升级——镜像里带着 agent 二进制，服务端启动时同步到 `./data/agent/`，
+节点下次重跑安装命令拿到的就是新版本。已经装好的 agent 不会自动更新（步骤 20 才做），
+但协议是兼容的，不升也能继续用。
+
+### 回滚
+
+```sh
+# .env 里把 SERVER_IMAGE 的 tag 换成上一个版本，然后
+docker compose up -d
+```
+
+注意：**迁移只增不改，不会回滚**。新版本如果加过表或列，退回旧镜像时那些东西还在，
+旧代码不认识它们但也不碰。真正不兼容的改动会在发版说明里写清楚。
+
+### 看日志
+
+```sh
+docker compose logs -f server          # 服务端，JSON 一行一条
+docker compose logs -f caddy           # 证书签发、反代错误
+docker compose ps                      # 容器状态，server 带 healthcheck
+```
+
+容器是 distroless 的，**里面没有 shell**，`docker compose exec server sh` 不可用。
+服务端自己的子命令可以照常执行（`exec` 直接跑二进制）：
+
+```sh
+docker compose exec -T server /app/server version
+docker compose exec -T server /app/server backup /data/backup/vm-手工.db
+docker compose exec -T server /app/server reset-password admin
+```
+
+### 限制访问来源
+
+`Caddyfile` 末尾注释里有一段 IP 白名单的写法。要注意 **agent 也要连 `/api/agent/ws`**，
+白名单必须包含所有节点的出口 IP，否则节点会全部掉线。只想护住浏览器那一面的话，
+给 `/dashboard` 和 `/api`（不含 `/api/agent/ws`）单独加白名单。
 
 ## 4. 备份与恢复
 
-（步骤 07 填充。目前需要保住的只有 `{VM_DATA_DIR}/vm.db` 与 `jwt.secret`。）
+### 每天自动备份
+
+`deploy/backup.sh` 调服务端的 `backup` 子命令（内部是 SQLite 的 `VACUUM INTO`），
+写到 `./data/backup/vm-YYYY-MM-DD.db`，保留 14 天。
+
+```sh
+chmod +x /opt/vps-monitor/backup.sh
+crontab -e
+# 每天 03:00
+0 3 * * * /opt/vps-monitor/backup.sh >> /var/log/vps-monitor-backup.log 2>&1
+```
+
+**不要直接拷 `vm.db`**：库开着 WAL，主文件旁边还有 `-wal` 和 `-shm`，
+只拷主文件会丢掉尚未 checkpoint 的事务，拷出来的可能是个损坏的库。
+
+### 恢复
+
+完整步骤见 `deploy/restore.md`。要点：停 server → 把旧库挪开（别直接覆盖）→
+**连 `-wal` 和 `-shm` 一起删** → 放上备份 → 起 server。
+
+### 哪些东西需要保住
+
+| 路径 | 内容 | 丢了会怎样 |
+|---|---|---|
+| `./data/vm.db` | 用户、节点、token、审计 | 一切配置都没了 |
+| `./data/jwt.secret` | JWT 签名密钥（只在没设 `VM_JWT_SECRET` 时才有这个文件） | 所有人要重新登录 |
+| `./data/agent/` | agent 二进制与安装脚本 | 不用管，服务端下次启动会从镜像里重新同步 |
+| `./data/backup/` | 备份 | —— |
+| Caddy 的 `caddy_data` 卷 | TLS 证书 | 会重新签发；反复重建有撞上 Let's Encrypt 限流的风险 |
 
 ## 5. 排障
 
 ### 忘记管理员密码
+
+Docker 部署直接重置，不用停服务：
+
+```sh
+docker compose exec -T server /app/server reset-password admin
+```
+
+打印出来的新密码立即生效。下面那套「删掉用户重启重建」是没有这个子命令时的老办法，留作参考。
+
+### 忘记管理员密码（旧办法）
 
 初始密码只打印一次，没有找回途径。停掉服务，删掉 `users` 表里的 `admin`，再启动，服务端会重新创建并打印一个新密码：
 

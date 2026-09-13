@@ -2,6 +2,10 @@
 //
 // 步骤 02：配置、SQLite + 迁移、JWT 登录、初始管理员、审计、内嵌前端。
 // 步骤 05：agent 与浏览器的 WebSocket 接入、在线判定、每秒快照广播。
+// 步骤 07：backup / reset-password / version 三个子命令，以及镜像自带 agent 的同步。
+//
+// 不带子命令就是启动服务端。子命令都是运维用的一次性操作，跑完即退出，
+// 和正在运行的服务端共用同一个数据目录（SQLite 的 WAL 模式允许多进程访问）。
 package main
 
 import (
@@ -12,11 +16,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 	_ "time/tzdata" // 静态二进制 / 精简镜像里也能加载 VM_TZ
 
+	"vpsmon/server/internal/agentdist"
 	"vpsmon/server/internal/api"
 	"vpsmon/server/internal/auth"
 	"vpsmon/server/internal/clock"
@@ -33,10 +39,138 @@ func main() {
 	// 先装一个 info 级别的 JSON logger，配置解析出错也能按同样格式打出来
 	setLogger(slog.LevelInfo)
 
-	if err := run(); err != nil {
+	if err := dispatch(os.Args[1:]); err != nil {
 		slog.Error("server exited with error", "err", err)
 		os.Exit(1)
 	}
+}
+
+// dispatch 按子命令分发。没有子命令就是启动服务端。
+func dispatch(args []string) error {
+	if len(args) == 0 {
+		return run()
+	}
+
+	switch args[0] {
+	case "version":
+		fmt.Println(version)
+		return nil
+	case "backup":
+		return backupCommand(args[1:])
+	case "reset-password":
+		return resetPasswordCommand(args[1:])
+	case "help", "-h", "--help":
+		printUsage()
+		return nil
+	default:
+		printUsage()
+		return fmt.Errorf("未知的子命令 %q", args[0])
+	}
+}
+
+func printUsage() {
+	fmt.Print(`用法：
+  server                      启动服务端（读 VM_* 环境变量）
+  server backup [路径]        备份数据库；不给路径就写到 {VM_DATA_DIR}/backup/vm-YYYY-MM-DD.db
+  server reset-password 用户名  重置密码，打印一个新的随机密码
+  server version              打印版本
+`)
+}
+
+// backupCommand 实现 server backup [路径]。
+func backupCommand(args []string) error {
+	if len(args) > 1 {
+		return errors.New("backup 最多接一个路径参数")
+	}
+
+	cfg, db, err := openStore()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	path := ""
+	if len(args) == 1 {
+		path = args[0]
+	} else {
+		// 默认文件名带日期，配合 backup.sh 的「保留 14 天」正好一天一个
+		path = filepath.Join(cfg.BackupDir(), fmt.Sprintf("vm-%s.db", clock.Now().Format("2006-01-02")))
+	}
+
+	if err := db.BackupTo(context.Background(), path); err != nil {
+		return err
+	}
+
+	// 这一句是给人看的，不走 slog 的 JSON——运维在终端里跑，JSON 反而难读
+	fmt.Println(path)
+	return nil
+}
+
+// resetPasswordCommand 实现 server reset-password 用户名。
+//
+// 生成一个新的随机密码并打印，不接受手工指定：命令行参数会进 shell 历史和 ps 输出。
+func resetPasswordCommand(args []string) error {
+	if len(args) != 1 {
+		return errors.New("用法：server reset-password 用户名")
+	}
+	username := args[0]
+
+	_, db, err := openStore()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	user, err := db.GetUserByUsername(ctx, username)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("用户 %q 不存在", username)
+		}
+		return err
+	}
+
+	password, err := auth.RandomPassword(16)
+	if err != nil {
+		return err
+	}
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		return err
+	}
+	if err := db.UpdateUserPassword(ctx, user.ID, hash); err != nil {
+		return err
+	}
+
+	fmt.Printf("用户 %s 的新密码：%s\n", username, password)
+	fmt.Println("（只显示这一次，登录后请到「设置 → 账号」自行修改）")
+	return nil
+}
+
+// openStore 给子命令用：读配置、开库、跑迁移。
+//
+// 也跑迁移是有意的：运维可能在换镜像之后、服务端还没起来之前就先备份一次。
+func openStore() (config.Config, *store.DB, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return config.Config{}, nil, err
+	}
+
+	loc, err := cfg.Location()
+	if err != nil {
+		return cfg, nil, err
+	}
+	clock.SetLocation(loc)
+
+	db, err := store.Open(cfg.DBPath())
+	if err != nil {
+		return cfg, nil, err
+	}
+	if err := db.Migrate(context.Background()); err != nil {
+		db.Close()
+		return cfg, nil, err
+	}
+	return cfg, db, nil
 }
 
 func run() error {
@@ -79,6 +213,11 @@ func run() error {
 		return err
 	}
 	if err := auth.EnsureAdmin(ctx, db); err != nil {
+		return err
+	}
+
+	// 镜像自带的 agent 产物同步到数据目录，节点从 /install.sh 与 /agent/{file} 下载的就是它
+	if err := agentdist.Sync(cfg.AgentDist, cfg.AgentDir(), version); err != nil {
 		return err
 	}
 

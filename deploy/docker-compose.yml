@@ -1,0 +1,48 @@
+# 面板部署。先把 .env.example 拷成 .env 填好，再 docker compose up -d。
+#
+# 只有 Caddy 对外暴露端口；server 只在 compose 的内部网络里，宿主上访问不到 9000。
+
+services:
+  server:
+    image: ${SERVER_IMAGE:-ghcr.io/OWNER/vps-monitor-server:latest}
+    restart: unless-stopped
+    environment:
+      VM_LISTEN: ':9000'
+      VM_DATA_DIR: /data
+      VM_PUBLIC_URL: https://${PANEL_DOMAIN}
+      VM_JWT_SECRET: ${VM_JWT_SECRET}
+      VM_TZ: ${VM_TZ:-Asia/Shanghai}
+      VM_LOG_LEVEL: ${VM_LOG_LEVEL:-info}
+      # 前面就一层 Caddy：客户端真实 IP 取 X-Forwarded-For 从右往左第 1 个。
+      # 这一项必须和实际拓扑对上——填错会让登录限速和审计里的 IP 全变成 Caddy 的容器地址，
+      # 或者反过来变成可以被请求头伪造。
+      VM_TRUSTED_PROXIES: '1'
+    volumes:
+      - ./data:/data
+    # 容器里没有 shell，健康检查用服务端自己的子命令
+    healthcheck:
+      test: ['CMD', '/app/server', 'version']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      PANEL_DOMAIN: ${PANEL_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # 证书必须持久化：卷掉了会重新签发，反复几次会撞上 Let's Encrypt 的限流
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data: {}
+  caddy_config: {}

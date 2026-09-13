@@ -49,6 +49,11 @@ type Config struct {
 	TZ             string         // VM_TZ，默认 Asia/Shanghai；结算类任务按这个时区算日历
 	LogLevel       string         // VM_LOG_LEVEL，默认 info（debug / info / warn / error）
 	TrustedProxies TrustedProxies // VM_TRUSTED_PROXIES，默认空 = 直连
+
+	// AgentDist 是镜像自带的 agent 产物目录（VM_AGENT_DIST，镜像里是 /app/agent-dist）。
+	// 启动时会把它同步到 {DataDir}/agent/ 供节点下载，这样「升级镜像 = 升级可下载的 agent」。
+	// 本地开发不设这个变量，同步就整个跳过。
+	AgentDist string
 }
 
 // Load 从环境变量读取配置并做基本校验。
@@ -60,6 +65,7 @@ func Load() (Config, error) {
 		JWTSecret: strings.TrimSpace(os.Getenv("VM_JWT_SECRET")),
 		TZ:        getenv("VM_TZ", "Asia/Shanghai"),
 		LogLevel:  getenv("VM_LOG_LEVEL", "info"),
+		AgentDist: strings.TrimSpace(os.Getenv("VM_AGENT_DIST")),
 	}
 
 	if _, err := ParseLogLevel(cfg.LogLevel); err != nil {
@@ -136,6 +142,16 @@ func ParseLogLevel(s string) (slog.Level, error) {
 		return slog.LevelInfo, fmt.Errorf("VM_LOG_LEVEL %q 无效（可选 debug / info / warn / error）", s)
 	}
 	return lv, nil
+}
+
+// AgentDir 返回节点下载 agent 的目录：{DataDir}/agent。
+func (c Config) AgentDir() string {
+	return filepath.Join(c.DataDir, "agent")
+}
+
+// BackupDir 返回备份目录：{DataDir}/backup。
+func (c Config) BackupDir() string {
+	return filepath.Join(c.DataDir, "backup")
 }
 
 // DBPath 返回 SQLite 文件路径：{DataDir}/vm.db。

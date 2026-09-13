@@ -1,0 +1,38 @@
+# 面板的反向代理。域名从 compose 传进来的 PANEL_DOMAIN 取。
+#
+# WebSocket（/api/ws 与 /api/agent/ws）不需要额外配置：Caddy v2 的 reverse_proxy
+# 会原样透传 Upgrade 握手。HTTP 会自动跳 HTTPS，证书由 Caddy 自动签发续期。
+
+{$PANEL_DOMAIN} {
+	reverse_proxy server:9000
+
+	# 访问日志按天轮转，保留 14 天。query 不记——步骤 15 的订阅链接把 token 放在 query 里。
+	log {
+		output file /data/access.log {
+			roll_size 10MiB
+			roll_keep 14
+			roll_keep_for 336h
+		}
+		format json
+	}
+
+	encode gzip zstd
+}
+
+# ----------------------------------------------------------------------
+# 只想让自己的 IP 访问面板的话，把上面整块换成这个：
+#
+# {$PANEL_DOMAIN} {
+# 	@allowed remote_ip 1.2.3.4/32 5.6.7.0/24
+# 	handle @allowed {
+# 		reverse_proxy server:9000
+# 	}
+# 	handle {
+# 		respond 403
+# 	}
+# }
+#
+# 注意 agent 也要连 /api/agent/ws，白名单里必须包含所有节点的出口 IP，
+# 否则节点会全部掉线。只想护住浏览器那一面的话，只给 /dashboard 与 /api（不含
+# /api/agent/ws）加白名单。
+# ----------------------------------------------------------------------
