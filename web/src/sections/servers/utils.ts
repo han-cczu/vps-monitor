@@ -1,11 +1,11 @@
-import type { TrafficMode, BillingCycle } from 'src/types/server';
+// 节点页专用的换算与文案。
+//
+// 通用的容量 / 速率 / 价格 / 到期天数在 src/utils/format.ts（监控总览页也要用）；
+// 这里只留表单里那套「GB / TB 双向换算」，它是本页表单独有的。
 
-import {
-  REGION_LABELS,
-  CURRENCY_SYMBOLS,
-  TRAFFIC_MODE_LABELS,
-  BILLING_CYCLE_LABELS,
-} from './constants';
+import type { TrafficMode } from 'src/types/server';
+
+import { REGION_LABELS, TRAFFIC_MODE_LABELS } from 'src/constants/server';
 
 // ----------------------------------------------------------------------
 
@@ -47,17 +47,6 @@ export function formatTrafficLimit(bytes: number): string {
 
 // ----------------------------------------------------------------------
 
-/** 价格 + 周期，如 `$10.79 / 月`；价格为 0 时显示 `—`。 */
-export function formatPrice(price: number, currency: string, cycle: BillingCycle): string {
-  if (!price) {
-    return '—';
-  }
-  const symbol = CURRENCY_SYMBOLS[currency] ?? `${currency} `;
-  const amount = Number.isInteger(price) ? String(price) : round2(price).toFixed(2);
-  const cycleLabel = cycle === 'once' ? '一次性' : BILLING_CYCLE_LABELS[cycle].replace('付', '');
-  return `${symbol}${amount} / ${cycleLabel}`;
-}
-
 /** 地区显示成「香港 HK」；没配就是空串。 */
 export function formatRegion(region: string): string {
   if (!region) {
@@ -69,20 +58,6 @@ export function formatRegion(region: string): string {
 
 export function formatTrafficMode(mode: TrafficMode): string {
   return TRAFFIC_MODE_LABELS[mode] ?? mode;
-}
-
-/** 到期日剩余天数；没设到期返回 null。 */
-export function daysUntil(expireAt: string | null): number | null {
-  if (!expireAt) {
-    return null;
-  }
-  const target = new Date(`${expireAt}T00:00:00`);
-  if (Number.isNaN(target.getTime())) {
-    return null;
-  }
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return Math.round((target.getTime() - today.getTime()) / 86_400_000);
 }
 
 function round2(n: number): number {

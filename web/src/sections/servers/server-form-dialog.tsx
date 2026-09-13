@@ -19,6 +19,13 @@ import DialogActions from '@mui/material/DialogActions';
 import InputAdornment from '@mui/material/InputAdornment';
 
 import { createServer, updateServer } from 'src/api/servers';
+import {
+  REGION_LABELS,
+  REGION_OPTIONS,
+  CURRENCY_OPTIONS,
+  TRAFFIC_MODE_OPTIONS,
+  BILLING_CYCLE_OPTIONS,
+} from 'src/constants/server';
 
 import { toast } from 'src/components/snackbar';
 import { Form, Field } from 'src/components/hook-form';
@@ -26,13 +33,6 @@ import { Form, Field } from 'src/components/hook-form';
 import { getErrorMessage } from 'src/auth/utils';
 
 import { joinTraffic, splitTraffic, TRAFFIC_UNITS } from './utils';
-import {
-  REGION_LABELS,
-  REGION_OPTIONS,
-  CURRENCY_OPTIONS,
-  TRAFFIC_MODE_OPTIONS,
-  BILLING_CYCLE_OPTIONS,
-} from './constants';
 
 // ----------------------------------------------------------------------
 

@@ -53,7 +53,7 @@ export type ServerItem = ServerPayload & {
   id: number;
   created_at: number;
   updated_at: number;
-  /** 实时状态：步骤 05 接上 hub 之前恒为 false / null */
+  /** 实时状态：步骤 05 起来自 hub 内存态 */
   online: boolean;
   last_seen: number | null;
   host: ServerHostInfo | null;

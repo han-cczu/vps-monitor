@@ -1,6 +1,6 @@
 import { CONFIG } from 'src/global-config';
 
-import { BlankView } from 'src/sections/blank/view';
+import { OverviewView } from 'src/sections/monitor/view';
 
 // ----------------------------------------------------------------------
 
@@ -11,7 +11,7 @@ export default function Page() {
     <>
       <title>{metadata.title}</title>
 
-      <BlankView title="监控总览" description="步骤 06 实现：服务器卡片网格、汇总条、筛选排序。" />
+      <OverviewView />
     </>
   );
 }

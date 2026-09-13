@@ -6,6 +6,7 @@ import { Outlet, Navigate } from 'react-router';
 import { paths } from 'src/routes/paths';
 
 import { DashboardLayout } from 'src/layouts/dashboard';
+import { RealtimeProvider } from 'src/ws/realtime-provider';
 
 import { LoadingScreen } from 'src/components/loading-screen';
 
@@ -42,7 +43,12 @@ const dashboardLayout = () => (
 export const dashboardRoutes: RouteObject[] = [
   {
     path: 'dashboard',
-    element: <AuthGuard>{dashboardLayout()}</AuthGuard>,
+    // RealtimeProvider 放在 AuthGuard 之内：登录之后才连 WebSocket，登出即断开
+    element: (
+      <AuthGuard>
+        <RealtimeProvider>{dashboardLayout()}</RealtimeProvider>
+      </AuthGuard>
+    ),
     children: [
       { element: <OverviewPage />, index: true },
       { path: 'servers', element: <ServersPage /> },
