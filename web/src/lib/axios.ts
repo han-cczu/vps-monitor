@@ -99,5 +99,6 @@ export const endpoints = {
     root: '/api/servers',
     byId: (id: number) => `/api/servers/${id}`,
     token: (id: number) => `/api/servers/${id}/token`,
+    history: (id: number, range: string) => `/api/servers/${id}/history?range=${range}`,
   },
 } as const;

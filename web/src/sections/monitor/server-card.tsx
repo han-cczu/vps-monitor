@@ -51,6 +51,7 @@ export const ServerCard = memo(function ServerCard({ id }: Props) {
       }}
     >
       <CardHeader
+        id={server.id}
         name={server.name}
         region={server.region}
         group={server.group}

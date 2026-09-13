@@ -382,6 +382,37 @@ vps-agent --once     # 不联网，直接打印 hello 与 metrics
 - **第一条 metrics 的 cpu 与速率是 0**：正常，差值算法要两次采样才有值。
 - **`tcp` / `udp` / `procs` 是 0**：这三项读 `/proc`，容器里没挂 `/proc` 或非 Linux 系统上就会是 0。
 
+### 历史曲线是空的 / 数据对不上（步骤 08）
+
+秒级上报不直接落库，先在内存里按分钟聚合，每分钟第 2 秒写一次；每小时第 5 分钟把上一小时的
+分钟行降采样成小时行，同时清理过期数据。所以：
+
+| 现象 | 原因 |
+|---|---|
+| 刚接入的节点没有曲线 | 正常，要等第一次落库（最多一分钟）。详情页会显示「还没有历史数据」 |
+| 曲线有缺口 | 那段时间节点掉线了。缺失的点**不补零**——补了会画出一条假的「CPU 掉到 0」 |
+| 面板重启后丢了一分钟 | 正常，当前分钟的内存桶没写出去。只有这一分钟 |
+| 切到 7 天 / 30 天没数据 | 那两档读小时表，要等整点后第 5 分钟的降采样跑过。新装的面板第一个小时内是空的 |
+| 7 天前的分钟级曲线没了 | 正常，分钟表默认只留 7 天；小时表留 365 天 |
+
+改保留期（单位是天，填非法值会被忽略）：
+
+```sh
+sqlite3 ./data/vm.db "INSERT INTO settings (key, value) VALUES ('retention.metrics_minute_days', '14')
+  ON CONFLICT(key) DO UPDATE SET value = excluded.value;"
+```
+
+改完下一次清理（每小时第 5 分钟）生效，不用重启。
+
+直接查库看聚合结果：
+
+```sh
+sqlite3 ./data/vm.db "SELECT datetime(ts,'unixepoch','localtime'), samples, round(cpu_avg,2), round(cpu_max,2)
+  FROM metrics_minute WHERE server_id = 1 ORDER BY ts DESC LIMIT 10;"
+```
+
+`samples` 是这一分钟实际收到多少条上报，正常接近 60；明显偏小说明那一分钟节点在掉线重连。
+
 ### 看访问日志
 
 每个请求一行 JSON，字段：`method`、`path`、`status`、`bytes`、`dur_ms`、`ip`、`req_id`。`/api/*` 记 `INFO`；静态资源与 `/api/health` 记 `DEBUG`，要看得 `VM_LOG_LEVEL=debug`。日志里不含 query 参数。

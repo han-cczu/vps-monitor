@@ -198,6 +198,7 @@
 | PUT | `/api/servers/{id}` | JWT | 全量覆盖可写字段（没传的按缺省值），token 不受影响。200 `{ server }`，含 `online` / `last_seen` / `host` | 03 |
 | DELETE | `/api/servers/{id}` | JWT | 删除节点，子表靠外键级联删除。204 | 03 |
 | POST | `/api/servers/{id}/token` | JWT | 重置 agent token，旧 token 立刻失效；**在线的 agent 会被当场断开**（鉴权只在握手时做过一次）。200 `{ token, install_command }` | 03 |
+| GET | `/api/servers/{id}/history` | JWT | 历史曲线，见 §3.5。query `range` 取 `1h` / `24h` / `7d` / `30d`（缺省 24h）；非法值 400 | 08 |
 | GET | `/api/agent/ws` | agent token | agent 接入（WebSocket 升级）。`Authorization: Bearer <agent token>`，见 §1；token 不对 401 | 05 |
 | GET | `/api/ws` | 首帧 auth | 浏览器接入（WebSocket 升级），见 §2；鉴权失败关闭码 4001 | 05 |
 | GET | `/install.sh` | 无 | agent 一键安装脚本，见 §3.4 | 03 |
@@ -286,6 +287,27 @@ curl -fsSL {面板地址}/install.sh | bash -s -- --server {wss://面板地址}/
 
 ---
 
+### 3.5 历史曲线（步骤 08）
+
+`GET /api/servers/{id}/history?range=24h`
+
+```json
+{"step":60,"from":1757600000,"to":1757686400,
+ "mem_total":51370958848,"disk_total":1024191361024,
+ "points":[{"ts":1757600000,"cpu":3.1,"cpu_max":8.2,"mem":458000000,"swap":0,"disk":9720000000,
+            "load1":0.04,"rx":169,"rx_max":420,"tx":303,"tx_max":900,"tcp":23,"udp":4,"procs":112}]}
+```
+
+| 项 | 说明 |
+|---|---|
+| `range` | `1h` / `24h` 读分钟表（`step` 60），`7d` / `30d` 读小时表（`step` 3600）。30 天的分钟行有 4 万多条，画出来既慢又没有意义 |
+| 字段名 | 比库里的短（`cpu` 而不是 `cpu_avg`）：24 小时是 1440 个点，字段名占的字节比数值还多 |
+| `cpu` / `mem` / `rx` / `tx` | 区间**平均**；`cpu_max` / `rx_max` / `tx_max` 是区间**峰值** |
+| `disk` / `tcp` / `udp` / `procs` | 区间内**最后一条**的值。磁盘用量是水位不是速率，平均出来的数既不是起点也不是终点 |
+| 缺失的点 | **不补零**。节点掉线那几分钟本来就没有数据，补成 0 会在曲线上画出一段「CPU 掉到 0」的假象；前端用 datetime 轴，缺口自然留空 |
+| `mem_total` / `disk_total` | 画百分比用，来自 `server_host_info`；节点从没连过就是 0 |
+| 浮点 | 服务端已经四舍五入到两位小数，前端不用再处理 |
+
 ## 4. 数据表
 
 迁移文件在 `server/internal/store/migrations/`，goose 格式，只增不改。所有时间都是 Unix 秒。
@@ -307,6 +329,19 @@ curl -fsSL {面板地址}/install.sh | bash -s -- --server {wss://面板地址}/
 
 设计方案 §8.2 把 `server_host_info` 的公网地址写成 `public_ipv4` / `public_ipv6`，这里合成一列 `public_ip`：
 agent 只探测 IPv4 / IPv6 的**可达性**（`ipv4` / `ipv6` 两个布尔列），真正的公网地址由服务端从 agent 的连接地址记一个。
+
+### `0003_metrics.sql`（步骤 08）
+
+| 表 | 内容 |
+|---|---|
+| `metrics_minute` | 秒级上报按分钟聚合的结果，`(server_id, ts)` 复合主键 + `WITHOUT ROWID`，`ts` 是整分。默认留 7 天 |
+| `metrics_hour` | 分钟行按小时降采样，结构与分钟表相同，`ts` 是整点。默认留 365 天 |
+
+两张表都随 `servers` 级联删除。保留天数可以改 `settings` 里的 `retention.metrics_minute_days` 与
+`retention.metrics_hour_days`（填非法值会被忽略并回落到默认，免得一次把历史删光）。
+
+秒级数据不落库：十几台节点每秒各一条，一天一百多万行，而面板要看的是曲线。
+聚合在内存里做，每分钟写一次；进程重启会丢掉当前这一分钟还没写出去的桶。
 
 ### 审计动作
 

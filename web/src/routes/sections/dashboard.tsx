@@ -18,6 +18,7 @@ import { usePathname } from '../hooks';
 
 const OverviewPage = lazy(() => import('src/pages/dashboard/overview'));
 const ServersPage = lazy(() => import('src/pages/dashboard/servers'));
+const ServerDetailPage = lazy(() => import('src/pages/dashboard/server-detail'));
 const ProxyPage = lazy(() => import('src/pages/dashboard/proxy'));
 const SubscribersPage = lazy(() => import('src/pages/dashboard/subscribers'));
 const AlertsPage = lazy(() => import('src/pages/dashboard/alerts'));
@@ -51,7 +52,13 @@ export const dashboardRoutes: RouteObject[] = [
     ),
     children: [
       { element: <OverviewPage />, index: true },
-      { path: 'servers', element: <ServersPage /> },
+      {
+        path: 'servers',
+        children: [
+          { index: true, element: <ServersPage /> },
+          { path: ':id', element: <ServerDetailPage /> },
+        ],
+      },
       { path: 'proxy', element: <ProxyPage /> },
       { path: 'subscribers', element: <SubscribersPage /> },
       { path: 'alerts', element: <AlertsPage /> },

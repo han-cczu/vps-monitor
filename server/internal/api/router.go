@@ -96,6 +96,7 @@ func NewRouter(deps Deps) http.Handler {
 			protected.Put("/servers/{id}", d.updateServer)
 			protected.Delete("/servers/{id}", d.deleteServer)
 			protected.Post("/servers/{id}/token", d.resetServerToken)
+			protected.Get("/servers/{id}/history", d.history)
 		})
 
 		api.NotFound(func(w http.ResponseWriter, _ *http.Request) {

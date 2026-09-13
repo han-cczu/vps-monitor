@@ -11,6 +11,9 @@ import Tooltip from '@mui/material/Tooltip';
 import { DataGrid } from '@mui/x-data-grid';
 import Typography from '@mui/material/Typography';
 
+import { paths } from 'src/routes/paths';
+import { useRouter } from 'src/routes/hooks';
+
 import { daysUntil, formatPrice } from 'src/utils/format';
 
 import { DashboardContent } from 'src/layouts/dashboard';
@@ -34,6 +37,7 @@ import { ServerTokenDialog, type ServerTokenInfo } from '../server-token-dialog'
 // ----------------------------------------------------------------------
 
 export function ServersListView() {
+  const router = useRouter();
   const { servers, serversLoading, serversError, refreshServers } = useServers();
 
   const [formOpen, setFormOpen] = useState(false);
@@ -192,6 +196,13 @@ export function ServersListView() {
       filterable: false,
       disableColumnMenu: true,
       getActions: (params) => [
+        <CustomGridActionsCellItem
+          key="detail"
+          showInMenu
+          icon={<Iconify icon="solar:eye-bold" />}
+          label="详情与曲线"
+          onClick={() => router.push(paths.dashboard.servers.details(params.row.id))}
+        />,
         <CustomGridActionsCellItem
           key="edit"
           showInMenu

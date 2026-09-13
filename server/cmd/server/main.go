@@ -3,6 +3,7 @@
 // 步骤 02：配置、SQLite + 迁移、JWT 登录、初始管理员、审计、内嵌前端。
 // 步骤 05：agent 与浏览器的 WebSocket 接入、在线判定、每秒快照广播。
 // 步骤 07：backup / reset-password / version 三个子命令，以及镜像自带 agent 的同步。
+// 步骤 08：秒级指标按分钟聚合落库、按小时降采样、按保留期清理。
 //
 // 不带子命令就是启动服务端。子命令都是运维用的一次性操作，跑完即退出，
 // 和正在运行的服务端共用同一个数据目录（SQLite 的 WAL 模式允许多进程访问）。
@@ -28,6 +29,7 @@ import (
 	"vpsmon/server/internal/clock"
 	"vpsmon/server/internal/config"
 	"vpsmon/server/internal/hub"
+	"vpsmon/server/internal/metrics"
 	"vpsmon/server/internal/store"
 	"vpsmon/server/web"
 )
@@ -225,6 +227,13 @@ func run() error {
 	go limiter.Run(ctx, time.Minute)
 
 	realtime := hub.New(db, tokens)
+
+	// 指标聚合：每条 metrics 先进内存桶，每分钟落一次库；每小时降采样并清理过期数据
+	aggregator := metrics.New(db)
+	realtime.Agents.OnMetrics(aggregator.OnMetrics)
+	go aggregator.Run(ctx)
+	go metrics.NewRollup(db).Run(ctx)
+
 	go realtime.Run(ctx)
 
 	handler := api.NewRouter(api.Deps{

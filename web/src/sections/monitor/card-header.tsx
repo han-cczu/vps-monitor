@@ -1,8 +1,12 @@
 import { useState, useEffect } from 'react';
 
 import Box from '@mui/material/Box';
+import Link from '@mui/material/Link';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
+
+import { paths } from 'src/routes/paths';
+import { RouterLink } from 'src/routes/components';
 
 import { formatDuration } from 'src/utils/format';
 
@@ -14,6 +18,7 @@ import { FlagIcon } from 'src/components/flag-icon';
 // ----------------------------------------------------------------------
 
 type Props = {
+  id: number;
   name: string;
   region: string;
   group: string;
@@ -25,7 +30,7 @@ type Props = {
 };
 
 /** 卡片顶部：国旗 + 名称 + 地区分组 + 协议栈标记；离线时右上角显示离线时长。 */
-export function CardHeader({ name, region, group, v4, v6, online, lastSeen }: Props) {
+export function CardHeader({ id, name, region, group, v4, v6, online, lastSeen }: Props) {
   const subtitle = [formatRegion(region), group].filter(Boolean).join(' · ');
 
   return (
@@ -36,10 +41,19 @@ export function CardHeader({ name, region, group, v4, v6, online, lastSeen }: Pr
       </Box>
 
       <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+        {/* 标题就是进详情页的入口。步骤 06 时这条路由还不存在，那会儿留了个空位。 */}
         <Tooltip title={name} placement="top-start">
-          <Typography noWrap variant="subtitle2" sx={{ lineHeight: 1.4 }}>
-            {name}
-          </Typography>
+          <Link
+            component={RouterLink}
+            href={paths.dashboard.servers.details(id)}
+            color="inherit"
+            underline="hover"
+            sx={{ display: 'block' }}
+          >
+            <Typography noWrap variant="subtitle2" sx={{ lineHeight: 1.4 }}>
+              {name}
+            </Typography>
+          </Link>
         </Tooltip>
 
         {/* 地区也写成文字：国旗认不出来的国家码（或者没填地区）时，卡片上不能一点线索都没有 */}
