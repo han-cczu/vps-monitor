@@ -123,6 +123,9 @@ func NewRouter(deps Deps) http.Handler {
 			protected.Post("/auth/totp/disable", d.totpDisable)
 			protected.Post("/auth/password", d.changePassword)
 
+			protected.Get("/agent-version", d.agentVersion)
+			protected.Post("/servers/{id}/agent/update", d.updateAgent)
+			protected.Post("/servers/agent/update-all", d.updateAllAgents)
 			protected.Get("/servers", d.listServers)
 			protected.Post("/servers", d.createServer)
 			protected.Get("/servers/{id}", d.getServer)

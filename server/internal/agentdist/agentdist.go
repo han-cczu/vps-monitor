@@ -46,6 +46,13 @@ func Sync(src, dst, version string) error {
 		return fmt.Errorf("读取 agent 产物目录 %s: %w", src, err)
 	}
 
+	sourceVersion, err := readVersion(src)
+	if err != nil {
+		return err
+	}
+	if sourceVersion != "" {
+		version = sourceVersion
+	}
 	current, err := readVersion(dst)
 	if err != nil {
 		return err

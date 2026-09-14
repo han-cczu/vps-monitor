@@ -35,13 +35,14 @@ const configTTL = 60 * time.Second
 
 // ServerState 是一台节点的内存态。
 type ServerState struct {
-	ID           int64
-	Online       bool
-	LastSeen     time.Time // 服务端收到最后一条 metrics 的时刻，不用 agent 上报的 ts
-	PublicIP     string    // 从 agent 连接地址记下的公网 IP
-	AgentVersion string
-	Host         proto.HostInfo
-	Latest       *proto.Metrics // 最后一条 metrics，没收到过是 nil
+	ID                 int64
+	Online             bool
+	LastSeen           time.Time // 服务端收到最后一条 metrics 的时刻，不用 agent 上报的 ts
+	PublicIP           string    // 从 agent 连接地址记下的公网 IP
+	AgentVersion       string
+	AgentUpdateCapable bool
+	Host               proto.HostInfo
+	Latest             *proto.Metrics // 最后一条 metrics，没收到过是 nil
 
 	// 后续步骤追加：PingRecent（09）、Core（13）、Traffic（18）
 }

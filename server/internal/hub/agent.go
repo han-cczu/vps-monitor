@@ -171,6 +171,7 @@ func (h *AgentHub) serveAuthenticated(w http.ResponseWriter, r *http.Request) {
 		st.PublicIP = publicIP
 		if agentVersion != "" {
 			st.AgentVersion = agentVersion
+			st.AgentUpdateCapable = false
 		}
 	})
 
@@ -266,6 +267,14 @@ func (h *AgentHub) handleHello(ctx context.Context, serverID int64, raw []byte) 
 	var publicIP string
 	if !h.reg.UpdateExisting(serverID, func(st *ServerState) {
 		st.Host = hello.Host
+		st.AgentUpdateCapable = false
+		if hello.ProtoVersion == proto.Version && len(hello.Capabilities) <= 16 {
+			for _, cap := range hello.Capabilities {
+				if cap == proto.TypeAgentUpdate {
+					st.AgentUpdateCapable = true
+				}
+			}
+		}
 		if hello.Version != "" {
 			st.AgentVersion = hello.Version
 		}
