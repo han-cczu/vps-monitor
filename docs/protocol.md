@@ -591,3 +591,36 @@ POST /api/servers/{id}/advanced/check 与 PUT /api/servers/{id}/advanced 输入 
 POST /api/servers/{id}/advanced/relay 输入 {target_server_id,target_inbound_id}，目标仅启用的VLESS/SS入站且有public_host，拒绝自身。预检成功后单事务保存kind=relay专用用户、分配和源extra，返回{advanced,relay_subscriber_id}。专用名relay:sourceId->targetId、tag为relay-目标名-目标ID，重复调用复用凭据/用户并替换同tag。源与目标均触发NodeChanged。DELETE相同路径移除当前默认助手出站、解除其用户分配，保留历史流量。
 
 迁移0008增加subscribers.kind=user|relay及relay名称唯一索引。GET /api/subscribers 默认隐藏relay，include_relay=1显式返回所有。GET /api/servers/{id}/subscriber-traffic 返回{subscribers:[{id,name,kind,up,down}]}，包括有当前分配或本节点当前账期流量的用户，各用户按自身period_start取账期；移除中转后有流量者仍显示。所有上述管理接口要求JWT和no-store。
+
+
+## 告警与通知（步骤 19）
+
+全部接口使用管理员 JWT：
+
+| 方法 | 地址 | 响应或请求 |
+|---|---|---|
+| GET | `/api/alert-rules` | `{rules:[{kind,params,enabled,updated_at}]}`，预置 11 条 |
+| PUT | `/api/alert-rules` | 全部 11 条规则数组，不允许漏项、重复或未知 kind/params；响应同 GET |
+| GET | `/api/notify-channels` | `{channels:[{id,name,kind,config,enabled,created_at}]}`，config 脱敏 |
+| POST | `/api/notify-channels` | `{name,kind,config,enabled?}`，201 `{channel}`；默认启用 |
+| PUT | `/api/notify-channels/{id}` | 完整表单，200 `{channel}`；不允许修改已有 kind |
+| DELETE | `/api/notify-channels/{id}` | 204，级联删该渠道发送队列，保留事件历史 |
+| POST | `/api/notify-channels/{id}/test` | 管理员显式发送一次测试；200 `{ok:true}`，失败 502，不自动重试测试 |
+| GET | `/api/alert-events?page=1&open=1&kind=&target=server:1` | `{events,total,open_count,page,page_size:50}`，最新优先；open_count 为全局进行中数 |
+| POST | `/api/alert-events/{id}/resolve` | 200 `{ok:true}`，幂等关闭，不宣称实际恢复；持续异常下次仍可触发 |
+
+Telegram 写入 config `{bot_token,chat_id}`，GET 只回 `{chat_id,has_bot_token}`。Webhook 写入 `{url,secret?}`，GET 只回 `{url,has_secret}`。PUT 的空 token/secret 保留原值，`clear_secret:true` 显式删除 Webhook 签名密钥。审计仅含渠道名称、类型、启用状态，URL/凭据均不入审计。
+
+规则参数：资源 percent 大于 0 且不超过 100，minutes 1–15；离线/核心停止 minutes 1–1440；丢包 percent 大于 0 且不超过 100。节点流量 percents 从 80/90/100 选取，用户用量从 80/100 选取，到期 days 从 7/3/1 选取，可选择子集且不可重复。事件来源没有任意阈值，接口明确拒绝不可能收到的阈值。
+
+每 60 s 评估离线、资源、Ping 和核心状态；资源使用最近 15 分钟环形窗口，启动从 metrics_minute 一次预热。CPU/内存为分钟平均，磁盘为分钟末次水位，连续完整分钟均严格高于阈值才触发；缺分钟不凑数。缺少在线观测不发送虚假的恢复通知。节点删除或规则停用会关闭进行中的记录，不发恢复。当前没有“期望停止核心”的管理操作，已安装核心视为期望运行；节点离线交给离线规则。
+
+事件类消费 `server.traffic/server.expire/subscriber.quota/subscriber.expired/core.apply_failed`，兼容 `subscriber.restored` 关闭遗留 open；阈值、到期、应用失败记录一创建即 resolved，不占铃铛进行中计数，也不发恢复。阈值事件另按节点/用户账期或提醒日期持久去重。`alert.New` 在启动任何发布者前订阅总线，Run 再消费缓冲。
+
+状态事件 dedupe_key 为 kind:target_type:target_id，Ping 追加 task_id，阈值追加阈值。已 open 不重复记录；关闭后可再记录，距前次 fired_at 小于 `alert.cooldown_minutes`（默认 30）时不创建发送队列。状态恢复更新原事件 resolved_at，只向已确认收到原告警的渠道排恢复通知；取消未发送的原告警，避免恢复后补发过时的离线消息。
+
+新增 `alert_deliveries` 持久 outbox 按事件/渠道/恢复标记分别维护 attempts、next_at、sent_at、last_error。首次加两次重试共最多 3 次，间隔 30 s，每个请求 10 s 超时；成功渠道不随其它渠道重发，重启继续未完成队列。所有原告警渠道成功后才写 alert_events.notified_at；冷却、无渠道、部分失败时保持 NULL。暂停渠道保留队列，启用后继续剩余尝试。新加渠道只接收之后触发的告警。
+
+Webhook POST JSON `{event,level,title,message,fired_at,recovery}`，secret 存在时 `X-Signature: sha256=<hex HMAC-SHA256(原始请求体)>`。Telegram POST sendMessage，parse_mode=HTML 并转义正文，要求响应 `ok=true`。不跟随 HTTP 重定向。`VM_HTTP_PROXY` 可设 HTTP(S) 代理，默认使用系统代理环境。网络错误对外只返回不含 URL/凭据的原因。
+
+总线非持久投递；收到事件入库后的通知才具有重启恢复能力。HTTP 成功与数据库确认之间无法建立跨系统原子事务，极端强杀可能重复发送；接收方可按 event.id 和 recovery 去重。

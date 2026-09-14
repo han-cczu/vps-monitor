@@ -1,6 +1,6 @@
 import { CONFIG } from 'src/global-config';
 
-import { BlankView } from 'src/sections/blank/view';
+import { AlertsView } from 'src/sections/alerts/alerts-view';
 
 // ----------------------------------------------------------------------
 
@@ -11,7 +11,7 @@ export default function Page() {
     <>
       <title>{metadata.title}</title>
 
-      <BlankView title="告警" description="步骤 19 实现：告警规则、事件列表、通知渠道。" />
+      <AlertsView />
     </>
   );
 }

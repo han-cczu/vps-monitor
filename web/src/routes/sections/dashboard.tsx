@@ -84,7 +84,14 @@ export const dashboardRoutes: RouteObject[] = [
           { path: ':id', element: <SubscriberDetailPage /> },
         ],
       },
-      { path: 'alerts', element: <AlertsPage /> },
+      {
+        path: 'alerts',
+        children: [
+          { index: true, element: <AlertsPage /> },
+          { path: 'rules', element: <AlertsPage /> },
+          { path: 'channels', element: <AlertsPage /> },
+        ],
+      },
       {
         path: 'settings',
         children: [

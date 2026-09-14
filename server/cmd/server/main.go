@@ -25,6 +25,7 @@ import (
 	_ "time/tzdata" // 静态二进制 / 精简镜像里也能加载 VM_TZ
 
 	"vpsmon/server/internal/agentdist"
+	"vpsmon/server/internal/alert"
 	"vpsmon/server/internal/api"
 	"vpsmon/server/internal/audit"
 	"vpsmon/server/internal/auth"
@@ -257,6 +258,12 @@ func run() error {
 	go limiter.Run(ctx, time.Minute)
 
 	realtime := hub.New(db, tokens)
+	sender, err := alert.NewSender()
+	if err != nil {
+		return err
+	}
+	alerts := alert.New(db, realtime.Registry, realtime.Bus, sender)
+	realtime.Agents.OnMetrics(alerts.OnMetrics)
 	accountant := traffic.New(db, realtime.Bus)
 	if err := accountant.Load(ctx); err != nil {
 		return fmt.Errorf("load traffic: %w", err)
@@ -320,6 +327,10 @@ func run() error {
 	go (&maintenance.Worker{DB: db}).Run(ctx)
 
 	go realtime.Run(ctx)
+	alertCtx, stopAlerts := context.WithCancel(ctx)
+	alertDone := make(chan struct{})
+	go func() { defer close(alertDone); alerts.Run(alertCtx) }()
+	defer func() { stopAlerts(); <-alertDone }()
 
 	handler := api.NewRouter(api.Deps{
 		DB:               db,
@@ -336,6 +347,7 @@ func run() error {
 		Proxy:            proxyService,
 		Reconciler:       reconciler,
 		Traffic:          accountant,
+		Alerts:           alerts,
 		SettingsDefaults: map[string]any{"sub.clash_template": sub.DefaultClashTemplate},
 		ValidateSetting: func(key string, value json.RawMessage) error {
 			if key != "sub.clash_template" {
