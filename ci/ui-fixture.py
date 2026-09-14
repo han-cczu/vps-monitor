@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Local-only disposable UI fixture; writes readiness, stops on a .stop marker."""
 import argparse
+from contextlib import closing
 import datetime
 import json
 import os
@@ -67,7 +68,7 @@ def main():
             api('PUT',f'/api/subscribers/{user["id"]}/assignments',{'inbound_ids':[x['id'] for x in inbounds]})
             users.append(user)
         # Layout-only fixtures for non-zero charts/status. These are not runtime evidence.
-        with sqlite3.connect(work/'data'/'vm.db') as db:
+        with closing(sqlite3.connect(work/'data'/'vm.db')) as db, db:
             db.execute("UPDATE subscribers SET traffic_used=1073741824,auto_disabled='quota' WHERE id=?",(users[1]['id'],))
             db.execute("INSERT INTO subscriber_traffic(subscriber_id,server_id,period_start,up_bytes,down_bytes) VALUES(?,?,?,?,?)",(users[0]['id'],nodes[0]['id'],users[0]['period_start'],100*1024**2,200*1024**2))
             db.execute("UPDATE subscribers SET traffic_used=? WHERE id=?",(300*1024**2,users[0]['id']))

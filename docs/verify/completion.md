@@ -46,6 +46,16 @@
 - MFA 绑定、ticket 和最终提交均校验凭据版本，DB 故障不累计锁定；设置/TOTP 审计与写入同事务。
 - 告警候选在发送前重新持久领取，取消/停用已提交的候选不再发送；16 并发只领取一次，重启租约及最多 3 次限制通过。HTTP 在事务外。外部成功但本地确认前崩溃仍可能重发，详见 [alerts-delivery-guard.md](alerts-delivery-guard.md)。
 
+## 本地运行交付
+
+集成提交 `8023bdc` 已快进合入 main。原 Step08 Windows 后端在一致性备份后替换为最终构建（版本标识 `local-steps20`），地址 `http://localhost:9000/dashboard`；前端开发端口8080保持运行。原数据库原地迁移至12，原账号密码与两节点保留，现有Agent重新在线。健康、认证、新设置/订阅接口和SQLite完整性检查均通过。
+
+运行程序为 `dist/local-panel/vps-server.exe`，本轮PID 14736；运行信息/检查结果为同目录 `runtime.json`、`verification.json`，日志为 `server.log` / `server-error.log`。原数据路径沿用旧进程配置；一致性备份为 `dist/local-panel/backup-before-steps20-20260914-212016/vm.db`。这些是本机运行状态，后续可能变化；未配置开机启动或远端部署。
+
+回退旧程序必须同时恢复该备份数据库：停止新版后，用备份恢复数据库并处理对应WAL/SHM，再按原环境配置启动旧可执行文件。不要让旧版本直接写入已升级的数据库。恢复会回到备份时点，后续新写入需另行保留。
+
+临时8085/9015验收进程已停止，WSL测试核心服务inactive且自建核心路径已清理，Caddy测试容器已移除。旧版fixture脚本的SQLite连接未关闭导致退出清理失败，现已修复；遗留 `dist/step15-20-qa/ui-pf8_jl16` 与 `upgrade-wgdt31ph` 的删除被自动审批策略拒绝，保留在忽略目录中，约0.8MiB。没有绕过策略继续删除。
+
 ## 尚需目标环境
 
 公网域名/TLS 与干净 VPS 安装、云防火墙、ARM64 实机、真实手机/URI 客户端扫码、两台 VPS 出口 IP 与 B 分账、真实 Telegram、实际资源压力及公网 Ping、连续一天 vnstat 对照、多日日志轮转/WAL、正式镜像/Release 更新及远端 CI 均未由本地测试替代。需要相应设备、目标环境或仓库 remote 后完成。
