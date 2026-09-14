@@ -353,7 +353,7 @@ export function ServerFormDialog({
             <Field.Switch
               name="auto_renew"
               label="到期自动顺延"
-              helperText="开启后，到期时按周期自动把到期日推后一期（结算在步骤 18）"
+              helperText="到期后按所选周期顺延登记的到期日"
             />
           </TabPanel>
 
