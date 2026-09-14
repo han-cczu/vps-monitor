@@ -11,6 +11,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -36,6 +37,7 @@ import (
 	"vpsmon/server/internal/metrics"
 	"vpsmon/server/internal/ping"
 	"vpsmon/server/internal/proxy"
+	"vpsmon/server/internal/proxy/sub"
 	"vpsmon/server/internal/store"
 	"vpsmon/server/internal/traffic"
 	"vpsmon/server/web"
@@ -320,20 +322,32 @@ func run() error {
 	go realtime.Run(ctx)
 
 	handler := api.NewRouter(api.Deps{
-		DB:             db,
-		Tokens:         tokens,
-		Limiter:        limiter,
-		Version:        version,
-		Web:            web.Handler(),
-		TrustedProxies: cfg.TrustedProxies,
-		DataDir:        cfg.DataDir,
-		PublicURL:      cfg.PublicURL,
-		Hub:            realtime,
-		Ping:           pings,
-		CoreFiles:      cores,
-		Proxy:          proxyService,
-		Reconciler:     reconciler,
-		Traffic:        accountant,
+		DB:               db,
+		Tokens:           tokens,
+		Limiter:          limiter,
+		Version:          version,
+		Web:              web.Handler(),
+		TrustedProxies:   cfg.TrustedProxies,
+		DataDir:          cfg.DataDir,
+		PublicURL:        cfg.PublicURL,
+		Hub:              realtime,
+		Ping:             pings,
+		CoreFiles:        cores,
+		Proxy:            proxyService,
+		Reconciler:       reconciler,
+		Traffic:          accountant,
+		SettingsDefaults: map[string]any{"sub.clash_template": sub.DefaultClashTemplate},
+		ValidateSetting: func(key string, value json.RawMessage) error {
+			if key != "sub.clash_template" {
+				return nil
+			}
+			var template string
+			if err := json.Unmarshal(value, &template); err != nil {
+				return err
+			}
+			return sub.ValidateClashTemplate(template)
+		},
+		SettingsChanged: func(_ []string) { db.InvalidateSubscriptions() },
 	})
 
 	srv := &http.Server{

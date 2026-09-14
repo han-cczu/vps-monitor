@@ -25,6 +25,7 @@ def main():
     parser = argparse.ArgumentParser()
     for name in ['server', 'agent', 'core', 'core-arm64', 'output']:
         parser.add_argument('--' + name, required=True)
+    parser.add_argument('--mihomo', help='also exercise subscriptions and quota with a real Mihomo client')
     args = parser.parse_args()
     assert os.geteuid() == 0, 'root required'
     owned = [Path(p) for p in ['/usr/local/bin/sing-box', '/etc/sing-box',
@@ -95,12 +96,13 @@ def main():
 
     class Payload(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
+            size = 64 * 1024 if self.path == '/small' else payload_size
             self.send_response(200)
-            self.send_header('Content-Length', str(payload_size))
+            self.send_header('Content-Length', str(size))
             self.end_headers()
             block = b'x' * (1024 * 1024)
-            for _ in range(50):
-                self.wfile.write(block)
+            for offset in range(0, size, len(block)):
+                self.wfile.write(block[:min(len(block), size-offset)])
 
         def log_message(self, *_):
             pass
@@ -139,7 +141,7 @@ def main():
                     content_type='multipart/form-data; boundary=' + boundary)
         request('PUT', '/api/corefiles/current', {'version': version})
         node = request('POST', '/api/servers', {'name': 'isolated-core-smoke', 'currency': 'USD',
-                       'billing_cycle': 'month', 'traffic_mode': 'max'}, expected=201)
+                       'billing_cycle': 'month', 'traffic_mode': 'max', 'public_host': '127.0.0.1'}, expected=201)
         node_id = node['server']['id']
         core_api = f'/api/servers/{node_id}/core'
         inbound_api = f'/api/servers/{node_id}/inbounds'
@@ -254,6 +256,10 @@ def main():
         evidence['checks']['empty_ss_users_reject_former_credentials'] = True
         request('POST', core_api + '/restart', expected=202)
         wait_for('restart complete', lambda: state()['running'] and not state()['last_error'])
+        if args.mihomo:
+            from subscription_smoke import exercise
+            exercise(args.mihomo, request, base, user, user_api, inbounds, state,
+                     work, port, launch, wait_for, httpd.server_port, evidence)
         final_revision = state()['applied_revision']
         stop(panel)
         panel = launch([server], 'server.log', env)
