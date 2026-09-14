@@ -159,6 +159,9 @@ func (m *Manager) install(ctx context.Context, a proto.CoreAction) error {
 	if err = m.service(ctx, "enable"); err != nil {
 		return rollback(err)
 	}
+	if err = m.installLogrotate(); err != nil {
+		return rollback(err)
+	}
 	r := m.snapshot()
 	r.InstalledVersion = v
 	if err = m.save(r); err != nil {

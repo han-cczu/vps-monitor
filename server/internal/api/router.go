@@ -7,6 +7,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -36,15 +37,18 @@ const verifyQueueTimeout = 5 * time.Second
 
 // Deps 是路由需要的全部依赖，由 main 装配。
 type Deps struct {
-	DB             *store.DB
-	Tokens         *auth.Tokens
-	MFA            *auth.MFA
-	Limiter        *auth.Limiter
-	Version        string
-	Web            http.Handler // 内嵌前端（server/web.Handler()）
-	TrustedProxies config.TrustedProxies
-	DataDir        string // VM_DATA_DIR：/install.sh 与 /agent/{file} 从 {DataDir}/agent/ 下发
-	PublicURL      string // VM_PUBLIC_URL：拼一键安装命令用，为空时按请求的 Host 推断
+	DB               *store.DB
+	Tokens           *auth.Tokens
+	SettingsDefaults map[string]any
+	ValidateSetting  func(key string, value json.RawMessage) error
+	SettingsChanged  func(keys []string)
+	MFA              *auth.MFA
+	Limiter          *auth.Limiter
+	Version          string
+	Web              http.Handler // 内嵌前端（server/web.Handler()）
+	TrustedProxies   config.TrustedProxies
+	DataDir          string // VM_DATA_DIR：/install.sh 与 /agent/{file} 从 {DataDir}/agent/ 下发
+	PublicURL        string // VM_PUBLIC_URL：拼一键安装命令用，为空时按请求的 Host 推断
 
 	// Hub 是实时状态中心。为 nil 时两个 WS 端点不注册、REST 里的 online 恒为 false，
 	// 单元测试就是这么跑的（hub 的行为由 hub 包自己的测试覆盖）。
@@ -105,6 +109,9 @@ func NewRouter(deps Deps) http.Handler {
 
 		api.Group(func(protected chi.Router) {
 			protected.Use(d.Tokens.Middleware)
+			protected.Get("/settings", d.getSettings)
+			protected.Put("/settings", d.putSettings)
+			protected.Get("/audit", d.listAudit)
 			protected.Get("/auth/me", d.me)
 			protected.Get("/auth/totp", d.totpStatus)
 			protected.Post("/auth/totp/setup", d.totpSetup)

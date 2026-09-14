@@ -31,6 +31,7 @@ import (
 	"vpsmon/server/internal/config"
 	"vpsmon/server/internal/corefiles"
 	"vpsmon/server/internal/hub"
+	"vpsmon/server/internal/maintenance"
 	"vpsmon/server/internal/metrics"
 	"vpsmon/server/internal/ping"
 	"vpsmon/server/internal/proxy"
@@ -221,6 +222,16 @@ func run() error {
 	if err := db.Migrate(ctx); err != nil {
 		return err
 	}
+	var savedTZ string
+	if found, err := db.GetSetting(ctx, "site.tz", &savedTZ); err != nil {
+		return err
+	} else if found {
+		l, err := time.LoadLocation(savedTZ)
+		if err != nil {
+			return err
+		}
+		clock.SetLocation(l)
+	}
 	if err := auth.EnsureAdmin(ctx, db); err != nil {
 		return err
 	}
@@ -286,6 +297,7 @@ func run() error {
 	realtime.Agents.OnMetrics(aggregator.OnMetrics)
 	go aggregator.Run(ctx)
 	go metrics.NewRollup(db).Run(ctx)
+	go (&maintenance.Worker{DB: db}).Run(ctx)
 
 	go realtime.Run(ctx)
 

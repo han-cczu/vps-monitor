@@ -244,6 +244,11 @@ func (m *Manager) monitor(ctx context.Context) {
 	poll := time.NewTicker(m.pollInterval)
 	state := time.NewTicker(m.stateInterval)
 	stats := time.NewTicker(m.statsInterval)
+	logTick := time.NewTicker(24 * time.Hour)
+	defer logTick.Stop()
+	if err := m.maintainLog(); err != nil {
+		slog.Warn("sing-box log maintenance", "err", err)
+	}
 	defer poll.Stop()
 	defer state.Stop()
 	defer stats.Stop()
@@ -253,6 +258,10 @@ func (m *Manager) monitor(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-logTick.C:
+			if err := m.maintainLog(); err != nil {
+				slog.Warn("sing-box log maintenance", "err", err)
+			}
 		case <-m.stateRequested:
 			m.emitState(ctx, "", nil)
 		case <-state.C:

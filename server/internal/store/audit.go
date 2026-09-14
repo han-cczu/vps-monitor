@@ -6,15 +6,15 @@ import (
 
 // AuditEntry 是 audit_log 表的一行。TargetID / Before / After / IP 为空串时按 NULL 存。
 type AuditEntry struct {
-	ID         int64
-	TS         int64 // Unix 秒
-	Actor      string
-	Action     string
-	TargetType string
-	TargetID   string
-	Before     string // JSON
-	After      string // JSON
-	IP         string
+	ID         int64  `json:"id"`
+	TS         int64  `json:"ts"` // Unix 秒
+	Actor      string `json:"actor"`
+	Action     string `json:"action"`
+	TargetType string `json:"target_type"`
+	TargetID   string `json:"target_id"`
+	Before     string `json:"before"` // JSON
+	After      string `json:"after"`  // JSON
+	IP         string `json:"ip"`
 }
 
 // InsertAudit 追加一条审计记录，返回新行 ID。
