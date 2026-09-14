@@ -21,7 +21,13 @@ func (n apiProxyNotifier) NodeChanged(id int64, reason string) { n.ch <- proxyNo
 
 func TestProxyAPICRUDSecretsAndAuth(t *testing.T) {
 	notifications := make(chan proxyNotice, 100)
-	e := newTestEnv(t, func(d *Deps) { d.Proxy = proxy.New(d.DB, apiProxyNotifier{notifications}) })
+	e := newTestEnv(t, func(d *Deps) {
+		d.Proxy = proxy.New(d.DB, apiProxyNotifier{notifications})
+		d.AdvancedCheck = func(context.Context, string, []byte) error { return nil }
+		if err := d.DB.SetSetting(context.Background(), "core.current_version", "1.14.0"); err != nil {
+			t.Fatal(err)
+		}
+	})
 	token := e.adminToken(t)
 	node, agentToken, _ := e.createServer(t, token, newServerBody())
 	base := fmt.Sprintf("/api/servers/%d", node)

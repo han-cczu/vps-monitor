@@ -2,6 +2,7 @@ import type { ProxyAssignment } from './proxy';
 
 export type Subscriber = ProxyAssignment & {
   name: string;
+  kind?: 'user' | 'relay';
   note: string;
   enabled: boolean;
   auto_disabled: 'none' | 'quota' | 'expired';

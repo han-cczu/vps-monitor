@@ -2,6 +2,7 @@ package sub
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"gopkg.in/yaml.v3"
 	"io"
@@ -141,5 +142,13 @@ func ValidateClashTemplate(tpl string) error {
 		return fmt.Errorf("订阅模板不得超过 256 KiB")
 	}
 	_, err := RenderClash(nil, tpl)
+	if err != nil {
+		return err
+	}
+	// Validate with multiple quoted names too: a placeholder that is legal as
+	// one scalar must not become broken YAML as soon as a user gets two nodes.
+	settings := json.RawMessage(`{"method":"2022-blake3-aes-128-gcm","server_psk":"AAAAAAAAAAAAAAAAAAAAAA=="}`)
+	sample := []Proxy{{Name: `校验 "节点"`, Protocol: "shadowsocks", Host: "2001:db8::1", Port: 8388, Inbound: model.Inbound{Settings: settings}}, {Name: "on", Protocol: "shadowsocks", Host: "example.com", Port: 8389, Inbound: model.Inbound{Settings: settings}}}
+	_, err = RenderClash(sample, tpl)
 	return err
 }

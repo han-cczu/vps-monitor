@@ -54,6 +54,7 @@ export function SubscriberDetailView({ id }: { id: number }) {
             <Typography sx={{ my: 2, whiteSpace: 'pre-wrap' }}>
               {subscriber.note || '无备注'}
             </Typography>
+            {subscriber.kind === 'relay' && <Alert severity="info">中转专用用户由源节点的中转助手管理，不能单独修改或旋转凭据。</Alert>}
             <QuotaBar used={subscriber.traffic_used} limit={subscriber.traffic_limit} />
             <Typography variant="body2">
               到期：{subscriber.expire_at || '无到期'} · 账期起始：
@@ -62,13 +63,13 @@ export function SubscriberDetailView({ id }: { id: number }) {
                 (subscriber.reset_day ? `每月 ${subscriber.reset_day} 日` : '不自动重置')}
             </Typography>
             <Box sx={{ display: 'flex', gap: 1, mt: 2, flexWrap: 'wrap' }}>
-              <Button onClick={() => setDialog('links')}>订阅链接</Button>
-              <Button onClick={() => setDialog('edit')}>编辑</Button>
+              <Button disabled={subscriber.kind === 'relay'} onClick={() => setDialog('links')}>订阅链接</Button>
+              <Button disabled={subscriber.kind === 'relay'} onClick={() => setDialog('edit')}>编辑</Button>
               <Button onClick={() => setDialog('reset-usage')}>清零用量</Button>
-              <Button color="error" onClick={() => setDialog('reset-token')}>
+              <Button color="error" disabled={subscriber.kind === 'relay'} onClick={() => setDialog('reset-token')}>
                 重置 token
               </Button>
-              <Button color="error" onClick={() => setDialog('regenerate-credentials')}>
+              <Button color="error" disabled={subscriber.kind === 'relay'} onClick={() => setDialog('regenerate-credentials')}>
                 重生凭据
               </Button>
             </Box>

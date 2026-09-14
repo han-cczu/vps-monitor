@@ -26,6 +26,7 @@ const SubscriberDetailPage = lazy(() => import('src/pages/dashboard/subscriber-d
 const AlertsPage = lazy(() => import('src/pages/dashboard/alerts'));
 const PingTasksPage = lazy(() => import('src/pages/dashboard/settings/ping-tasks'));
 const CoreFilesPage = lazy(() => import('src/pages/dashboard/settings/corefiles'));
+const SubscriptionSettingsPage = lazy(() => import('src/pages/dashboard/settings/subscription'));
 const SettingsAccountPage = lazy(() => import('src/pages/dashboard/settings/account'));
 
 // ----------------------------------------------------------------------
@@ -86,6 +87,7 @@ export const dashboardRoutes: RouteObject[] = [
           { path: 'account', element: <SettingsAccountPage /> },
           { path: 'ping-tasks', element: <PingTasksPage /> },
           { path: 'corefiles', element: <CoreFilesPage /> },
+          { path: 'subscription', element: <SubscriptionSettingsPage /> },
         ],
       },
     ],

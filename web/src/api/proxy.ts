@@ -32,7 +32,7 @@ export function useCore(id: number) {
   return { ...result, core: result.data?.core };
 }
 export function useInbounds(id: number) {
-  return useSWR<{ inbounds: Inbound[] }>(`${node(id)}/inbounds`, fetcher, polling);
+  return useSWR<{ inbounds: Inbound[] }>(id ? `${node(id)}/inbounds` : null, fetcher, polling);
 }
 export function useCert(id: number) {
   return useSWR<{ cert: NodeCert | null }>(`${node(id)}/cert`, fetcher, polling);
@@ -47,7 +47,7 @@ export function useAdvanced(id: number) {
   );
 }
 export function useProxyAssignments() {
-  return useSWR<{ subscribers: ProxyAssignment[] }>('/api/subscribers', fetcher, polling);
+  return useSWR<{ subscribers: ProxyAssignment[] }>('/api/subscribers?include_relay=1', fetcher, polling);
 }
 
 export async function installCore(id: number) {

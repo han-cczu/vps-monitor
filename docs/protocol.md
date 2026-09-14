@@ -567,3 +567,14 @@ core.stats 不信任 Agent 时间，按面板接收日期归入 daily；用户�
 10 秒内存缓存仅保存渲染体，key 为 token 的 SHA-256 加格式；所有成功代理事务（用户、凭据、token、分配、入站、证书）以及设置和节点写入递增 DB.SubscriptionEpoch。调用直接 SQL 更新相关源的后续服务必须调用 DB.InvalidateSubscriptions。每次重新查 token/用户并生成用量头；变更期间完成的旧渲染不写入新 epoch 缓存。
 
 `GET /api/subscribers/{id}/traffic` 需 JWT，返回 by_server:[{server_id,name,up,down}]（当前 period_start，删除节点保留原用量与 ID）、daily:[{date,up,down}]（面板日期最近 30 天，缺日补零）。方向量是原始上下行数据，不保证与切换计费模式后的累计 traffic_used 相等。
+
+
+## 步骤 17：订阅格式、高级预检与中转
+
+公开订阅增加 format=singbox（application/json，outbounds片段）和 uri（text/plain，标准Base64 URI列表）。停用用户分别输出空outbounds或空内容，不能加YAML注释破坏JSON/URI。HY2/TUIC sing-box TLS含PEM证书和insecure:false；TUIC URI allow_insecure=1，HY2 URI insecure=1并附pinSHA256，需客户端支持指纹校验。所有订阅格式共享限速和失效epoch。订阅到期头及每日范围使用clock.Location/clock.Now，与OS时区独立。
+
+POST /api/servers/{id}/advanced/check 与 PUT /api/servers/{id}/advanced 输入 {extra_json:object}。读取一致快照，Render后执行当前托管核心check；失败400，管理员响应含脱敏诊断；缺少可执行核心也拒绝保存。保存前事务比较输入快照，变化409；检查不保存高级JSON、不创建修订、不通知节点。
+
+POST /api/servers/{id}/advanced/relay 输入 {target_server_id,target_inbound_id}，目标仅启用的VLESS/SS入站且有public_host，拒绝自身。预检成功后单事务保存kind=relay专用用户、分配和源extra，返回{advanced,relay_subscriber_id}。专用名relay:sourceId->targetId、tag为relay-目标名-目标ID，重复调用复用凭据/用户并替换同tag。源与目标均触发NodeChanged。DELETE相同路径移除当前默认助手出站、解除其用户分配，保留历史流量。
+
+迁移0008增加subscribers.kind=user|relay及relay名称唯一索引。GET /api/subscribers 默认隐藏relay，include_relay=1显式返回所有。GET /api/servers/{id}/subscriber-traffic 返回{subscribers:[{id,name,kind,up,down}]}，包括有当前分配或本节点当前账期流量的用户，各用户按自身period_start取账期；移除中转后有流量者仍显示。所有上述管理接口要求JWT和no-store。

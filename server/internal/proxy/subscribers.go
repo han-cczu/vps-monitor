@@ -43,6 +43,9 @@ func (s *Service) SaveSubscriber(ctx context.Context, id int64, in SubscriberInp
 				return err
 			}
 			sub = *before
+			if sub.Kind == "relay" {
+				return invalid(fmt.Errorf("中转专用用户由中转助手管理"))
+			}
 		}
 		if in.Name != nil {
 			sub.Name = strings.TrimSpace(*in.Name)
@@ -116,6 +119,9 @@ func (s *Service) DeleteSubscriber(ctx context.Context, id int64) error {
 			return err
 		}
 		ids = nodeIDs(before)
+		if before.Kind == "relay" {
+			return invalid(fmt.Errorf("请使用移除中转；中转用户保留历史分账"))
+		}
 		if err = q.DeleteSubscriber(ctx, id); err != nil {
 			return err
 		}
@@ -148,6 +154,9 @@ func (s *Service) Assign(ctx context.Context, id int64, inboundIDs []int64) (*st
 			return err
 		}
 		changed = nodeIDs(before)
+		if before.Kind == "relay" {
+			return invalid(fmt.Errorf("中转专用用户的分配由中转助手管理"))
+		}
 		for _, inboundID := range inboundIDs {
 			if _, err = q.Inbound(ctx, inboundID); err != nil {
 				return err
@@ -183,6 +192,9 @@ func (s *Service) SubscriberAction(ctx context.Context, id int64, action string)
 			return err
 		}
 		sub := *before
+		if sub.Kind == "relay" && action != "reset-usage" {
+			return invalid(fmt.Errorf("中转专用凭据由中转助手管理，不能单独旋转"))
+		}
 		switch action {
 		case "reset-token":
 			sub.SubToken = keys.SubToken()

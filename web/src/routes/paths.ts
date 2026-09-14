@@ -45,6 +45,7 @@ export const paths = {
       account: `${ROOTS.DASHBOARD}/settings/account`,
       pingTasks: `${ROOTS.DASHBOARD}/settings/ping-tasks`,
       corefiles: `${ROOTS.DASHBOARD}/settings/corefiles`,
+      subscription: `${ROOTS.DASHBOARD}/settings/subscription`,
     },
   },
 };

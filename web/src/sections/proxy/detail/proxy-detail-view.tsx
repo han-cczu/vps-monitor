@@ -18,9 +18,11 @@ import { getErrorMessage } from 'src/auth/utils';
 import { CertCard } from './cert-card';
 import { LogDrawer } from './log-drawer';
 import { InboundList } from './inbound-list';
-import { AdvancedHint } from './advanced-hint';
+import { AdvancedJSON } from './advanced-json';
+import { FirewallPorts } from './firewall-ports';
 import { CoreStatusCard } from './core-status-card';
 import { RevisionsDialog } from './revisions-dialog';
+import { NodeSubscriberTraffic } from './subscriber-traffic';
 
 export function ProxyDetailView({ serverId }: { serverId: number }) {
   const { servers } = useServers();
@@ -83,6 +85,9 @@ export function ProxyDetailView({ serverId }: { serverId: number }) {
               onRevisions={() => setDialog('revisions')}
             />
           )}
+          {inbounds.data && (
+            <FirewallPorts inbounds={inbounds.data.inbounds} firewall={core.core?.firewall} />
+          )}
           {cert.data && <CertCard serverId={serverId} cert={cert.data.cert} onSaved={refresh} />}
         </Box>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
@@ -96,7 +101,8 @@ export function ProxyDetailView({ serverId }: { serverId: number }) {
               onSaved={refresh}
             />
           )}
-          <AdvancedHint serverId={serverId} />
+          <AdvancedJSON serverId={serverId} />
+          <NodeSubscriberTraffic serverId={serverId} />
         </Box>
       </Box>
       {dialog === 'logs' && (
