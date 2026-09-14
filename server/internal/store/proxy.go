@@ -92,6 +92,9 @@ func (db *DB) WithProxyTx(ctx context.Context, fn func(ProxyQueries) error) erro
 		return err
 	}
 	_, err = conn.ExecContext(ctx, "COMMIT")
+	if err == nil {
+		db.InvalidateSubscriptions()
+	}
 	return err
 }
 func notFound(err error) error {

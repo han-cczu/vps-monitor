@@ -571,3 +571,12 @@ REST 节点列表/详情增加 `traffic_used`，上限沿用 `traffic_limit`。W
 自动顺延在启动补跑和每日 00:05 后执行：只处理 `expire_at < 今天 && auto_renew`，month/quarter/year 按日历加 1/3/12 月，短月夹到月末，多次补算直到晚于今天；once 不变。变更与 `actor=system, action=server.auto_renew` 审计同事务提交。提醒使用 `billing_reminders` 持久化每天/节点/阈值去重。
 
 统一内存总线 Event 保留 Kind/ServerID/At，并增加 TargetType/TargetID/Threshold/Message。流量跨 80/90/100 发布 `server.traffic`，到期余 7/3/1 天发布 `server.expire`；节点 TargetType=server，TargetID=ServerID，Threshold 分别为百分比或天数，At 为面板时区时间。总线是非阻塞、非持久投递，不能视为通知成功回执。
+## 步骤 15：公开订阅与用户流量
+
+`GET /sub/{token}?format=clash|clash-provider` 无 JWT，未知 token 返回空 404；默认 clash。有效 token 每分钟 30 次，第 31 次 429 / Retry-After: 60。响应 no-store、text/yaml、profile-update-interval: 24 和 RFC 5987 文件名。subscription-userinfo 用 upload=0、download=traffic_used（计费累计量），不限额省略 total、无到期省略 expire；到期时间为面板时区该日结束。
+
+用户手动或自动停用返回 200 空 proxies 和原因注释。仅收集已分配且启用的入站、现存且 public_host 非空的节点；同名加端口，跨同名节点再次冲突加 ID。模板 key sub.clash_template，缺省由 sub.DefaultClashTemplate 提供；含 PROXIES 和 PROXY_NAMES 占位，最终 YAML 必须为单文档且保持代理列表。
+
+10 秒内存缓存仅保存渲染体，key 为 token 的 SHA-256 加格式；所有成功代理事务（用户、凭据、token、分配、入站、证书）以及设置和节点写入递增 DB.SubscriptionEpoch。调用直接 SQL 更新相关源的后续服务必须调用 DB.InvalidateSubscriptions。每次重新查 token/用户并生成用量头；变更期间完成的旧渲染不写入新 epoch 缓存。
+
+`GET /api/subscribers/{id}/traffic` 需 JWT，返回 by_server:[{server_id,name,up,down}]（当前 period_start，删除节点保留原用量与 ID）、daily:[{date,up,down}]（面板日期最近 30 天，缺日补零）。方向量是原始上下行数据，不保证与切换计费模式后的累计 traffic_used 相等。

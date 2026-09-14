@@ -96,4 +96,7 @@ func RenderClashProvider(proxies []Proxy) ([]byte, error)
 
 ## 9. 偏离记录
 
-（开工前为空）
+- 复用现有 MUI DataGrid（仓库没有 CustomDataGrid 封装），分配采用已安装的 MUI SimpleTreeView；不新增 Node 依赖。
+- 缓存失效由 DB SubscriptionEpoch 统一驱动，成功代理事务和设置/节点写入递增；流量响应头每次读取。并发渲染仅在输入 epoch 未变化时写缓存。
+- Caddy 对 /sub/* 跳过访问日志，应用记录 subscriber_id；证书和模板错误不回显包含秘密的数据。
+- 真实 Clash 客户端扫码、连通、pin 反例和 Caddy 实际日志验收尚未执行，已明确列入 verify 文档。

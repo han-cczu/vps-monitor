@@ -130,11 +130,7 @@ func (e *Enforcer) RunOnce(ctx context.Context) error {
 		return err
 	}
 	if changed {
-		// Step 15's store adds the epoch API. This interface keeps the enforcer
-		// independently usable while ensuring integrated caches invalidate on commit.
-		if cache, ok := any(e.db).(interface{ InvalidateSubscriptions() }); ok {
-			cache.InvalidateSubscriptions()
-		}
+		e.db.InvalidateSubscriptions()
 	}
 	for id := range changedNodes {
 		e.notifier.NodeChanged(id, "subscriber.policy")

@@ -37,6 +37,7 @@ func (d *Deps) proxyRoutes(r chi.Router) {
 		r.Get("/subscribers", d.proxyListSubscribers)
 		r.Post("/subscribers", d.proxyCreateSubscriber)
 		r.Get("/subscribers/{id}", d.proxyGetSubscriber)
+		r.Get("/subscribers/{id}/traffic", d.subscriberTraffic)
 		r.Put("/subscribers/{id}", d.proxyUpdateSubscriber)
 		r.Delete("/subscribers/{id}", d.proxyDeleteSubscriber)
 		r.Put("/subscribers/{id}/assignments", d.proxyAssignments)

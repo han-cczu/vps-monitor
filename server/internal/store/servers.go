@@ -155,6 +155,7 @@ func (db *DB) CreateServer(ctx context.Context, in ServerInput, tokenHash string
 	if err != nil {
 		return nil, err
 	}
+	db.InvalidateSubscriptions()
 	return db.GetServer(ctx, id)
 }
 
@@ -178,6 +179,7 @@ func (db *DB) UpdateServer(ctx context.Context, id int64, in ServerInput) (*Serv
 	} else if n == 0 {
 		return nil, ErrNotFound
 	}
+	db.InvalidateSubscriptions()
 	return db.GetServer(ctx, id)
 }
 
@@ -203,6 +205,7 @@ func (db *DB) UpdateServerTokenHash(ctx context.Context, id int64, tokenHash str
 // DeleteServer 删除节点。server_host_info 等子表靠外键 ON DELETE CASCADE 一起删，
 // 前提是连接上开了 foreign_keys（见 Open 的 DSN）。
 func (db *DB) DeleteServer(ctx context.Context, id int64) error {
+	defer db.InvalidateSubscriptions()
 	res, err := db.ExecContext(ctx, "DELETE FROM servers WHERE id = ?", id)
 	if err != nil {
 		return err
