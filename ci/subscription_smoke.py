@@ -15,8 +15,12 @@ def exercise(mihomo, request, base, user, user_api, inbounds, state,
              work, port, launch, wait_for, payload_port, evidence):
     print('subscription smoke: importing real four-protocol provider', flush=True)
     # The legacy smoke leaves VLESS disabled; enable it for the complete export.
+    def wait_applied(label, before, timeout=20):
+        return wait_for(label, lambda: (lambda s: s['applied_revision'] > before and not s['pending'])(state()), timeout)
+
+    before = state()['applied_revision']
     request('PUT', f'/api/inbounds/{inbounds[0]["id"]}', {'enabled': True})
-    wait_for('four protocol re-enable', lambda: not state()['pending'], 20)
+    wait_applied('four protocol re-enable', before)
     proxy_port, control_port = port(), port()
     secret = secrets.token_hex(24)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -24,6 +28,7 @@ def exercise(mihomo, request, base, user, user_api, inbounds, state,
     def subscription(token, fmt='clash-provider', expected=200):
         try:
             with opener.open(base + '/sub/' + token + '?format=' + fmt, timeout=10) as response:
+                assert response.status == expected, 'unexpected subscription response status'
                 return response.read(), dict(response.headers)
         except urllib.error.HTTPError as exc:
             assert exc.code == expected, 'unexpected subscription response status'
@@ -85,10 +90,11 @@ def exercise(mihomo, request, base, user, user_api, inbounds, state,
     request('POST', user_api + '/reset-usage')
     request('PUT', user_api, {'traffic_limit': 100*1024*1024})
     started = time.monotonic()
+    before = state()['applied_revision']
     for _ in range(3):
         assert transfer('/payload', 30) == 0, '150 MiB quota setup transfer failed'
     wait_for('quota enforcement', lambda: request('GET', user_api)['subscriber']['status'] == 'quota', 110)
-    wait_for('quota removal applied', lambda: not state()['pending'], 20)
+    wait_applied('quota removal applied', before)
     assert transfer(timeout=5) != 0, 'quota-disabled user still connects'
     body, headers = subscription(user['sub_token'])
     assert b'proxies: []' in body and 'subscription-userinfo' in {k.lower() for k in headers}
@@ -96,8 +102,9 @@ def exercise(mihomo, request, base, user, user_api, inbounds, state,
     assert evidence['quota_seconds'] <= 120, 'quota SLA exceeded'
     evidence['checks']['mihomo_150mib_quota_denied_empty_subscription'] = True
     started = time.monotonic()
+    before = state()['applied_revision']
     request('PUT', user_api, {'traffic_limit': 1024*1024*1024})
-    wait_for('raised quota applied', lambda: not state()['pending'], 15)
+    wait_applied('raised quota applied', before, 15)
     assert transfer() == 0, 'raised quota did not restore connection'
     evidence['quota_restore_seconds'] = round(time.monotonic()-started, 3)
     assert evidence['quota_restore_seconds'] <= 10, 'quota restore SLA exceeded'
@@ -105,11 +112,13 @@ def exercise(mihomo, request, base, user, user_api, inbounds, state,
     print('subscription smoke: quota stop/restore passed', flush=True)
 
     today = datetime.datetime.now(ZoneInfo('Asia/Shanghai')).date()
+    before = state()['applied_revision']
     request('PUT', user_api, {'expire_at': str(today-datetime.timedelta(days=1))})
-    wait_for('expiry removal applied', lambda: not state()['pending'], 20)
+    wait_applied('expiry removal applied', before)
     assert transfer(timeout=5) != 0, 'expired user still connects'
+    before = state()['applied_revision']
     request('PUT', user_api, {'expire_at': str(today+datetime.timedelta(days=1))})
-    wait_for('expiry extension applied', lambda: not state()['pending'], 20)
+    wait_applied('expiry extension applied', before)
     assert transfer() == 0, 'expiry extension did not restore connection'
     evidence['checks']['mihomo_expiry_stop_extend_restore'] = True
     old_token = user['sub_token']
