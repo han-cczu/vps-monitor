@@ -38,6 +38,7 @@ const verifyQueueTimeout = 5 * time.Second
 type Deps struct {
 	DB             *store.DB
 	Tokens         *auth.Tokens
+	MFA            *auth.MFA
 	Limiter        *auth.Limiter
 	Version        string
 	Web            http.Handler // 内嵌前端（server/web.Handler()）
@@ -61,6 +62,9 @@ type Deps struct {
 // NewRouter 构建根路由。
 func NewRouter(deps Deps) http.Handler {
 	d := &deps
+	if d.MFA == nil {
+		d.MFA = d.Tokens.NewMFA()
+	}
 	d.verifySem = make(chan struct{}, maxConcurrentVerify)
 	d.coreSlots = make(chan struct{}, 2)
 	if d.Proxy == nil {
@@ -88,6 +92,7 @@ func NewRouter(deps Deps) http.Handler {
 	r.Route("/api", func(api chi.Router) {
 		api.Get("/health", d.health)
 		api.Post("/auth/sign-in", d.signIn)
+		api.Post("/auth/mfa", d.mfa)
 
 		// 两个 WebSocket 端点都不挂 JWT 中间件，各自在协议层鉴权：
 		// agent 用 Authorization: Bearer <agent token>（握手时查 token_hash）；
@@ -101,6 +106,10 @@ func NewRouter(deps Deps) http.Handler {
 		api.Group(func(protected chi.Router) {
 			protected.Use(d.Tokens.Middleware)
 			protected.Get("/auth/me", d.me)
+			protected.Get("/auth/totp", d.totpStatus)
+			protected.Post("/auth/totp/setup", d.totpSetup)
+			protected.Post("/auth/totp/enable", d.totpEnable)
+			protected.Post("/auth/totp/disable", d.totpDisable)
 			protected.Post("/auth/password", d.changePassword)
 
 			protected.Get("/servers", d.listServers)
