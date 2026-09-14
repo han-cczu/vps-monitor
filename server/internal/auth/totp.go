@@ -27,8 +27,9 @@ type challenge struct {
 	Expires      time.Time
 }
 type enrollment struct {
-	Secret  string
-	Expires time.Time
+	PasswordHash string
+	Secret       string
+	Expires      time.Time
 }
 
 // MFA holds only short-lived challenges. Accepted TOTP steps are stored in SQLite.
@@ -115,7 +116,7 @@ func (m *MFA) Consume(ticket string) (int64, string, error) {
 	}
 	return c.UserID, c.PasswordHash, nil
 }
-func (m *MFA) Setup(id int64, username string) (string, string, error) {
+func (m *MFA) Setup(id int64, username, passwordHash string) (string, string, error) {
 	key, err := totp.Generate(totp.GenerateOpts{Issuer: "VPS Monitor", AccountName: username, SecretSize: 20})
 	if err != nil {
 		return "", "", err
@@ -126,15 +127,15 @@ func (m *MFA) Setup(id int64, username string) (string, string, error) {
 	if len(m.pending) >= 1024 {
 		return "", "", errors.New("MFA capacity exceeded")
 	}
-	m.pending[id] = enrollment{key.Secret(), m.now().Add(10 * time.Minute)}
+	m.pending[id] = enrollment{PasswordHash: passwordHash, Secret: key.Secret(), Expires: m.now().Add(10 * time.Minute)}
 	return key.Secret(), key.URL(), nil
 }
-func (m *MFA) Pending(id int64) (string, error) {
+func (m *MFA) Pending(id int64, passwordHash string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.prune()
 	v, ok := m.pending[id]
-	if !ok {
+	if !ok || v.PasswordHash != passwordHash {
 		return "", ErrMFA
 	}
 	return v.Secret, nil

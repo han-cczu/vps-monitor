@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -42,6 +43,10 @@ func (d *Deps) mfa(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err = d.verifyTOTP(r, user, req.Code); err != nil {
+		if !errors.Is(err, auth.ErrMFA) && !errors.Is(err, store.ErrTOTPReplay) && !errors.Is(err, store.ErrTOTPState) {
+			writeError(w, 500, "验证服务暂时不可用")
+			return
+		}
 		d.Limiter.Fail(ipKey)
 		d.Limiter.Fail(key)
 		writeError(w, 401, auth.ErrMFA.Error())
@@ -61,7 +66,7 @@ func (d *Deps) verifyTOTP(r *http.Request, u *store.User, code string) error {
 	if err != nil {
 		return err
 	}
-	return d.DB.ConsumeTOTP(r.Context(), u.ID, step, code, now)
+	return d.DB.ConsumeTOTP(r.Context(), u, step, code, now)
 }
 func (d *Deps) totpStatus(w http.ResponseWriter, r *http.Request) {
 	p, _ := auth.PrincipalFromContext(r.Context())
@@ -111,7 +116,7 @@ func (d *Deps) totpSetup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 409, "请先禁用已有二步验证")
 		return
 	}
-	secret, url, err := d.MFA.Setup(u.ID, u.Username)
+	secret, url, err := d.MFA.Setup(u.ID, u.Username, u.PasswordHash)
 	if err != nil {
 		writeError(w, 500, "无法生成二步验证密钥")
 		return
@@ -142,38 +147,41 @@ func (d *Deps) totpToggle(w http.ResponseWriter, r *http.Request, enabled bool) 
 		writeError(w, 409, "二步验证状态已改变，请刷新")
 		return
 	}
-	encrypted := ""
+	now := time.Now()
+	var secret string
 	if enabled {
-		secret, e := d.MFA.Pending(u.ID)
-		err = e
-		if err == nil {
-			var step int64
-			step, err = auth.MatchTOTP(req.Code, secret, time.Now())
-			if err == nil {
-				err = d.DB.ConsumeTOTP(r.Context(), u.ID, step, req.Code, time.Now())
-			}
-		}
-		if err == nil {
-			encrypted, err = d.MFA.Encrypt(u.ID, secret)
-		}
+		secret, err = d.MFA.Pending(u.ID, u.PasswordHash)
 	} else {
-		err = d.verifyTOTP(r, u, req.Code)
+		secret, err = d.MFA.Decrypt(u.ID, u.TOTPSecret)
+	}
+	var step int64
+	if err == nil {
+		step, err = auth.MatchTOTP(req.Code, secret, now)
+	}
+	encrypted := ""
+	if err == nil && enabled {
+		encrypted, err = d.MFA.Encrypt(u.ID, secret)
 	}
 	if err != nil {
 		d.Limiter.Fail(key)
 		writeError(w, 400, auth.ErrMFA.Error())
 		return
 	}
-	if err = d.DB.SetTOTP(r.Context(), u.ID, u.TOTPSecret, encrypted, enabled); err != nil {
-		writeError(w, 409, "二步验证状态已改变，请刷新")
-		return
-	}
-	d.MFA.Clear(u.ID)
-	d.Limiter.Reset(key)
 	action := "auth.totp_disable"
 	if enabled {
 		action = "auth.totp_enable"
 	}
-	audit.Record(r.Context(), d.DB, action, "user", strconv.FormatInt(u.ID, 10), nil, map[string]bool{"enabled": enabled})
+	change := &store.TOTPChange{Secret: encrypted, Enabled: enabled, Audit: store.AuditEntry{TS: now.Unix(), Actor: p.Name, Action: action, TargetType: "user", TargetID: strconv.FormatInt(u.ID, 10), IP: audit.ClientIP(r)}}
+	if err = d.DB.ApplyTOTP(r.Context(), u, step, req.Code, now, change); err != nil {
+		if errors.Is(err, store.ErrTOTPState) || errors.Is(err, store.ErrTOTPReplay) {
+			d.Limiter.Fail(key)
+			writeError(w, 409, "二步验证状态已变化或验证码已使用，请刷新重试")
+		} else {
+			writeError(w, 500, "保存二步验证和审计失败")
+		}
+		return
+	}
+	d.MFA.Clear(u.ID)
+	d.Limiter.Reset(key)
 	w.WriteHeader(204)
 }
