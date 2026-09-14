@@ -7,14 +7,14 @@ import Card from '@mui/material/Card';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 
-import { daysUntil, formatRate } from 'src/utils/format';
+import { daysUntil, formatRate, formatBytes } from 'src/utils/format';
 
 import { useRealtime } from 'src/store/realtime';
 
 // ----------------------------------------------------------------------
 
 /** 「即将到期」的阈值（天）。 */
-const EXPIRING_SOON_DAYS = 30;
+const EXPIRING_SOON_DAYS = 7;
 
 /**
  * 顶部汇总条。
@@ -41,7 +41,11 @@ export function SummaryBar() {
       />
       <SummaryItem label="总上行" value={formatRate(summary.up)} />
       <SummaryItem label="总下行" value={formatRate(summary.down)} />
-      <SummaryItem label="本月流量" value="—" hint="节点流量结算在步骤 18 实现" />
+      <SummaryItem
+        label="本月总流量"
+        value={formatBytes(summary.traffic)}
+        hint="全部节点当前账期已用流量之和"
+      />
       <SummaryItem
         label={`${EXPIRING_SOON_DAYS} 天内到期`}
         value={String(summary.expiring)}
@@ -97,6 +101,7 @@ type Summary = {
   up: number;
   down: number;
   expiring: number;
+  traffic: number;
 };
 
 function selectSummary(state: { servers: Record<number, ServerSnapshot> }): Summary {
@@ -106,8 +111,10 @@ function selectSummary(state: { servers: Record<number, ServerSnapshot> }): Summ
   let up = 0;
   let down = 0;
   let expiring = 0;
+  let traffic = 0;
 
   for (const server of servers) {
+    traffic += server.traffic?.used ?? 0;
     if (server.online) {
       online += 1;
       // 离线节点的速率是最后一帧的旧值，累加进总量会让"全站上行"虚高
@@ -121,5 +128,5 @@ function selectSummary(state: { servers: Record<number, ServerSnapshot> }): Summ
     }
   }
 
-  return { online, total: servers.length, up, down, expiring };
+  return { online, total: servers.length, up, down, expiring, traffic };
 }

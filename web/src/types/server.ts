@@ -57,6 +57,7 @@ export type ServerItem = ServerPayload & {
   online: boolean;
   last_seen: number | null;
   host: ServerHostInfo | null;
+  traffic_used: number;
 };
 
 /** 创建与重置 token 的响应：明文 token 只在这里出现一次 */
@@ -67,4 +68,22 @@ export type ServerTokenResult = {
 
 export type ServerCreateResult = ServerTokenResult & {
   server: ServerItem;
+};
+
+export type TrafficSnapshot = {
+  used: number;
+  limit: number;
+  mode: TrafficMode;
+  in: number;
+  out: number;
+  period_start: number;
+  period_end_expected: number;
+};
+
+export type TrafficPeriod = {
+  period_start: number;
+  period_end: number | null;
+  in: number;
+  out: number;
+  used: number;
 };

@@ -46,9 +46,7 @@ export function OverviewView() {
       <Box sx={{ gap: 3, display: 'flex', flexDirection: 'column' }}>
         {status !== 'open' && (
           <Alert severity={hasSnapshot ? 'warning' : 'info'}>
-            {hasSnapshot
-              ? '连接中断，正在重连——下面显示的是最后一帧数据'
-              : '正在连接实时通道…'}
+            {hasSnapshot ? '连接中断，正在重连——下面显示的是最后一帧数据' : '正在连接实时通道…'}
           </Alert>
         )}
 
@@ -136,6 +134,10 @@ function compare(a: ServerSnapshot, b: ServerSnapshot, key: Filters['sort']): nu
       return b.cpu - a.cpu;
     case 'mem':
       return usage(b.mem) - usage(a.mem);
+    case 'expire':
+      return (a.expire_at ?? '9999-12-31').localeCompare(b.expire_at ?? '9999-12-31');
+    case 'remaining':
+      return remaining(a) - remaining(b) || a.id - b.id;
     case 'traffic':
       return b.net.out_total - a.net.out_total;
     default:
@@ -164,4 +166,10 @@ function selectFacet(servers: Record<number, ServerSnapshot>, kind: 'group' | 't
   }
 
   return [...values].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
+}
+
+function remaining(server: ServerSnapshot): number {
+  return server.traffic && server.traffic.limit > 0
+    ? server.traffic.limit - server.traffic.used
+    : Number.MAX_VALUE;
 }

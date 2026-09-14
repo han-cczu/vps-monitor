@@ -18,14 +18,14 @@ type ServerData = { server: ServerItem };
 
 const swrOptions: SWRConfiguration = {
   revalidateOnFocus: false,
+  refreshInterval: 30000,
   revalidateOnReconnect: true,
 };
 
 /**
  * 节点列表。
  *
- * 在线状态要到步骤 05（实时 Hub）才会动，所以这里不做轮询：
- * 增删改之后由调用方 refreshServers() 主动刷新。
+ * 在线状态、用量与自动续期每 30 秒刷新；增删改后主动刷新。
  */
 export function useServers() {
   const { data, isLoading, error, isValidating, mutate } = useSWR<ServersData>(

@@ -14,7 +14,7 @@ import Typography from '@mui/material/Typography';
 import { paths } from 'src/routes/paths';
 import { useRouter } from 'src/routes/hooks';
 
-import { daysUntil, formatPrice } from 'src/utils/format';
+import { daysUntil, formatPrice, formatBytes } from 'src/utils/format';
 
 import { DashboardContent } from 'src/layouts/dashboard';
 import { useServers, deleteServer, resetServerToken } from 'src/api/servers';
@@ -180,10 +180,18 @@ export function ServersListView() {
         formatPrice(params.row.price, params.row.currency, params.row.billing_cycle),
     },
     {
-      field: 'traffic_limit',
-      headerName: '流量',
-      width: 96,
-      renderCell: (params) => formatTrafficLimit(params.row.traffic_limit),
+      field: 'traffic_used',
+      headerName: '本期用量 / 上限',
+      width: 180,
+      renderCell: (params) =>
+        `${formatBytes(params.row.traffic_used ?? 0)} / ${params.row.traffic_limit ? formatTrafficLimit(params.row.traffic_limit) : '∞'}`,
+    },
+    {
+      field: 'traffic_mode',
+      headerName: '模式',
+      width: 100,
+      valueFormatter: (value: string) =>
+        ({ out: '出站', in: '入站', sum: '双向合计', max: '取较大者' })[value] ?? value,
     },
     {
       type: 'actions',

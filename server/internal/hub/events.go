@@ -12,8 +12,10 @@ const (
 	// EventServerOnline 在节点从离线变为在线时发出。
 	EventServerOnline EventKind = "server.online"
 	// EventServerOffline 在离线扫描判定节点掉线时发出。
-	EventServerOffline   EventKind = "server.offline"
-	EventCoreApplyFailed EventKind = "core.apply_failed"
+	EventServerOffline          EventKind = "server.offline"
+	EventCoreApplyFailed        EventKind = "core.apply_failed"
+	EventServerTrafficThreshold EventKind = "server.traffic"
+	EventServerExpiringSoon     EventKind = "server.expire"
 )
 
 // Event 是总线上的一条事件。

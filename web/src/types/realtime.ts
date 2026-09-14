@@ -5,7 +5,7 @@
 // 服务端那边有 golden 测试（server/internal/hub/testdata/snapshot.json）守着字段名。
 
 import type { PingSummary } from 'src/types/ping';
-import type { BillingCycle } from 'src/types/server';
+import type { BillingCycle, TrafficSnapshot } from 'src/types/server';
 
 // ----------------------------------------------------------------------
 
@@ -82,8 +82,8 @@ export type ServerSnapshot = {
   currency: string;
   cycle: BillingCycle;
 
-  /** 剩余流量：步骤 18 填充，在那之前恒为 null */
-  traffic: null;
+  /** 当前节点账期用量；服务未装配时为 null */
+  traffic: TrafficSnapshot | null;
   /** 启用的延迟任务摘要；无任务时为空数组 */
   ping: PingSummary[];
   /** sing-box 核心状态；未装配核心服务时为 null */

@@ -61,8 +61,9 @@ type Registry struct {
 	now func() time.Time
 
 	// pingSource 由 ping 服务在装配时挂上；没挂时快照里的 ping 恒为空数组。
-	pingSource func(serverID int64) []PingView
-	coreSource func(serverID int64) any
+	pingSource    func(serverID int64) []PingView
+	coreSource    func(serverID int64) any
+	trafficSource func(serverID int64) *TrafficView
 
 	cacheMu sync.Mutex
 	cache   []store.Server
@@ -163,6 +164,8 @@ func (r *Registry) SetPingSource(fn func(serverID int64) []PingView) {
 
 // SetCoreSource is registered once before serving/broadcasting.
 func (r *Registry) SetCoreSource(fn func(int64) any) { r.coreSource = fn }
+
+func (r *Registry) SetTrafficSource(fn func(int64) *TrafficView) { r.trafficSource = fn }
 
 // Remove 删掉一台节点的内存态（节点被删除时调用）。
 func (r *Registry) Remove(id int64) {
@@ -269,6 +272,16 @@ type ConnView struct {
 	UDP int `json:"udp"`
 }
 
+type TrafficView struct {
+	Used              int64  `json:"used"`
+	Limit             int64  `json:"limit"`
+	Mode              string `json:"mode"`
+	In                int64  `json:"in"`
+	Out               int64  `json:"out"`
+	PeriodStart       int64  `json:"period_start"`
+	PeriodEndExpected int64  `json:"period_end_expected"`
+}
+
 // ServerView 是广播给浏览器的单台节点快照（设计方案 §7.3）。
 //
 // 它不是 proto.Metrics 的复用而是投影：字段被刻意改短、重新分组，
@@ -306,7 +319,7 @@ type ServerView struct {
 
 	// 字段顺序按 docs/plan/06 §4.6 的示例来：traffic、ping、core。
 	// golden 测试比的是完整 JSON 字符串，换顺序它会红。
-	Traffic any `json:"traffic"` // 步骤 18 填充，现在恒为 null
+	Traffic *TrafficView `json:"traffic"`
 	// 延迟任务（步骤 09）。没有适用任务时是空数组；尚无结果用 last_ts=null 表示。
 	Ping []PingView `json:"ping"`
 	Core any        `json:"core"` // 步骤 13：核心状态摘要
@@ -389,6 +402,13 @@ func (r *Registry) viewFor(s *store.Server) ServerView {
 	if r.coreSource != nil {
 		v.Core = r.coreSource(s.ID)
 	}
+	if r.trafficSource != nil {
+		v.Traffic = r.trafficSource(s.ID)
+		if v.Traffic != nil {
+			v.Net.OutTotal = v.Traffic.Out
+			v.Net.InTotal = v.Traffic.In
+		}
+	}
 
 	st, ok := r.Get(s.ID)
 	if !ok {
@@ -414,6 +434,10 @@ func (r *Registry) viewFor(s *store.Server) ServerView {
 		v.Conn = ConnView{TCP: m.TCP, UDP: m.UDP}
 		v.Procs = m.Procs
 		v.Uptime = m.Uptime
+	}
+	if v.Traffic != nil {
+		v.Net.OutTotal = v.Traffic.Out
+		v.Net.InTotal = v.Traffic.In
 	}
 	return v
 }

@@ -26,6 +26,7 @@ import { ServerCard } from 'src/sections/monitor/server-card';
 import { HISTORY_RANGES } from 'src/types/history';
 
 import { PingCharts } from '../detail/ping-charts';
+import { BillingPanel } from '../detail/billing-panel';
 import { HistoryCharts } from '../detail/history-charts';
 import { HostInfoPanel } from '../detail/host-info-panel';
 
@@ -90,6 +91,8 @@ export function ServerDetailView() {
           <ServerCard id={serverID} />
           <HostInfoPanel host={server.host} />
         </Box>
+
+        <BillingPanel server={server} />
 
         <Tabs
           value={tab}
