@@ -26,10 +26,11 @@ def main():
     for name in ['server', 'agent', 'core', 'core-arm64', 'output']:
         parser.add_argument('--' + name, required=True)
     parser.add_argument('--mihomo', help='also exercise subscriptions and quota with a real Mihomo client')
+    parser.add_argument('--agent-next', help='optional newer version test build for real self-update')
     args = parser.parse_args()
     assert os.geteuid() == 0, 'root required'
     owned = [Path(p) for p in ['/usr/local/bin/sing-box', '/etc/sing-box',
-             '/var/log/sing-box', '/var/lib/vps-agent', '/etc/systemd/system/sing-box.service']]
+             '/var/log/sing-box', '/var/lib/vps-agent', '/etc/systemd/system/sing-box.service', '/etc/logrotate.d/sing-box']]
     for path in owned:
         assert not path.exists(), f'refusing to replace existing {path}'
     assert subprocess.check_output(['systemctl', 'show', 'sing-box', '-p', 'LoadState', '--value'],
@@ -39,6 +40,11 @@ def main():
             sock.bind(('127.0.0.1', port))
     server, agent, core = (str(Path(p).resolve()) for p in [args.server, args.agent, args.core])
     work = Path(tempfile.mkdtemp(prefix='vps-reconcile-smoke-'))
+    # Self-update may replace the running file. Never mutate supplied build artifacts.
+    agent_copy = work / 'vps-agent'
+    shutil.copy2(agent, agent_copy)
+    agent_copy.chmod(0o755)
+    agent = str(agent_copy)
     processes, handles = [], []
     evidence = {'platform': 'Linux amd64 / systemd', 'checks': {}, 'payload_bytes': 50 * 1024 * 1024}
     payload_size = evidence['payload_bytes']
@@ -260,6 +266,23 @@ def main():
             from subscription_smoke import exercise
             exercise(args.mihomo, request, base, user, user_api, inbounds, state,
                      work, port, launch, wait_for, httpd.server_port, evidence)
+        if args.agent_next:
+            next_version = subprocess.check_output([args.agent_next, '--version'], text=True, timeout=5).strip()
+            release_dir = work / 'data' / 'agent'
+            release_dir.mkdir(exist_ok=True)
+            shutil.copy2(args.agent_next, release_dir / 'vps-agent-linux-amd64')
+            (release_dir / 'VERSION').write_text(next_version)
+            before_hash = hashlib.sha256(agent_copy.read_bytes()).hexdigest()
+            started = time.monotonic()
+            request('POST', f'/api/servers/{node_id}/agent/update', expected=202)
+            wait_for('agent self-update and reconnect', lambda: any(s['id'] == node_id and s['online'] and s['version'] == next_version for s in request('GET', '/api/agent-version')['servers']), 20)
+            assert daemon.poll() is None, 'exec changed supervisor process lifecycle'
+            assert hashlib.sha256(Path(agent + '.bak').read_bytes()).hexdigest() == before_hash
+            assert hashlib.sha256(agent_copy.read_bytes()).hexdigest() == hashlib.sha256(Path(args.agent_next).read_bytes()).hexdigest()
+            evidence['agent_update_seconds'] = round(time.monotonic()-started, 3)
+            assert evidence['agent_update_seconds'] <= 10, 'agent update reconnect SLA exceeded'
+            evidence['checks']['real_agent_update_hash_backup_same_pid_reconnect'] = True
+            print('agent update smoke: exec/reconnect passed', flush=True)
         final_revision = state()['applied_revision']
         stop(panel)
         panel = launch([server], 'server.log', env)

@@ -10,6 +10,10 @@ node_modules/
 *.log
 npm-debug.log*
 
+# Python verification scripts
+__pycache__/
+*.pyc
+
 # 前端构建产物（由 make build-web 生成后喂给 go:embed）
 # dist 里只跟踪 .gitkeep：给 go:embed 留个匹配目标，构建产物一律不进版本库。
 /web/dist/
