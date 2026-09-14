@@ -127,7 +127,21 @@ func (d *Deps) signIn(w http.ResponseWriter, r *http.Request) {
 	}
 
 	d.Limiter.Reset(ip)
-
+	if user.TOTPEnabled {
+		ticket, err := d.MFA.Ticket(user.ID, user.PasswordHash)
+		if err != nil {
+			busy(w)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, 200, map[string]any{"mfaRequired": true, "ticket": ticket})
+		return
+	}
+	d.completeSignIn(w, r, user)
+}
+func (d *Deps) completeSignIn(w http.ResponseWriter, r *http.Request, user *store.User) {
+	w.Header().Set("Cache-Control", "no-store")
+	ip := audit.ClientIP(r)
 	principal := auth.Principal{ID: user.ID, Name: user.Username, Role: auth.RoleAdmin}
 	token, exp, err := d.Tokens.Issue(principal)
 	if err != nil {

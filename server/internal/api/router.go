@@ -7,6 +7,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -37,14 +38,18 @@ const verifyQueueTimeout = 5 * time.Second
 
 // Deps 是路由需要的全部依赖，由 main 装配。
 type Deps struct {
-	DB             *store.DB
-	Tokens         *auth.Tokens
-	Limiter        *auth.Limiter
-	Version        string
-	Web            http.Handler // 内嵌前端（server/web.Handler()）
-	TrustedProxies config.TrustedProxies
-	DataDir        string // VM_DATA_DIR：/install.sh 与 /agent/{file} 从 {DataDir}/agent/ 下发
-	PublicURL      string // VM_PUBLIC_URL：拼一键安装命令用，为空时按请求的 Host 推断
+	DB               *store.DB
+	Tokens           *auth.Tokens
+	SettingsDefaults map[string]any
+	ValidateSetting  func(key string, value json.RawMessage) error
+	SettingsChanged  func(keys []string)
+	MFA              *auth.MFA
+	Limiter          *auth.Limiter
+	Version          string
+	Web              http.Handler // 内嵌前端（server/web.Handler()）
+	TrustedProxies   config.TrustedProxies
+	DataDir          string // VM_DATA_DIR：/install.sh 与 /agent/{file} 从 {DataDir}/agent/ 下发
+	PublicURL        string // VM_PUBLIC_URL：拼一键安装命令用，为空时按请求的 Host 推断
 
 	// Hub 是实时状态中心。为 nil 时两个 WS 端点不注册、REST 里的 online 恒为 false，
 	// 单元测试就是这么跑的（hub 的行为由 hub 包自己的测试覆盖）。
@@ -64,6 +69,9 @@ type Deps struct {
 // NewRouter 构建根路由。
 func NewRouter(deps Deps) http.Handler {
 	d := &deps
+	if d.MFA == nil {
+		d.MFA = d.Tokens.NewMFA()
+	}
 	d.verifySem = make(chan struct{}, maxConcurrentVerify)
 	d.coreSlots = make(chan struct{}, 2)
 	d.subscriptions = newSubscriptionCache()
@@ -92,6 +100,7 @@ func NewRouter(deps Deps) http.Handler {
 	r.Route("/api", func(api chi.Router) {
 		api.Get("/health", d.health)
 		api.Post("/auth/sign-in", d.signIn)
+		api.Post("/auth/mfa", d.mfa)
 
 		// 两个 WebSocket 端点都不挂 JWT 中间件，各自在协议层鉴权：
 		// agent 用 Authorization: Bearer <agent token>（握手时查 token_hash）；
@@ -104,7 +113,14 @@ func NewRouter(deps Deps) http.Handler {
 
 		api.Group(func(protected chi.Router) {
 			protected.Use(d.Tokens.Middleware)
+			protected.Get("/settings", d.getSettings)
+			protected.Put("/settings", d.putSettings)
+			protected.Get("/audit", d.listAudit)
 			protected.Get("/auth/me", d.me)
+			protected.Get("/auth/totp", d.totpStatus)
+			protected.Post("/auth/totp/setup", d.totpSetup)
+			protected.Post("/auth/totp/enable", d.totpEnable)
+			protected.Post("/auth/totp/disable", d.totpDisable)
 			protected.Post("/auth/password", d.changePassword)
 
 			protected.Get("/servers", d.listServers)

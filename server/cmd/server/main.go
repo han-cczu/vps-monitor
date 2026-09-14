@@ -25,12 +25,14 @@ import (
 
 	"vpsmon/server/internal/agentdist"
 	"vpsmon/server/internal/api"
+	"vpsmon/server/internal/audit"
 	"vpsmon/server/internal/auth"
 	"vpsmon/server/internal/billing"
 	"vpsmon/server/internal/clock"
 	"vpsmon/server/internal/config"
 	"vpsmon/server/internal/corefiles"
 	"vpsmon/server/internal/hub"
+	"vpsmon/server/internal/maintenance"
 	"vpsmon/server/internal/metrics"
 	"vpsmon/server/internal/ping"
 	"vpsmon/server/internal/proxy"
@@ -64,6 +66,8 @@ func dispatch(args []string) error {
 		return nil
 	case "backup":
 		return backupCommand(args[1:])
+	case "reset-totp":
+		return resetTOTPCommand(args[1:])
 	case "reset-password":
 		return resetPasswordCommand(args[1:])
 	case "help", "-h", "--help":
@@ -80,6 +84,7 @@ func printUsage() {
   server                      启动服务端（读 VM_* 环境变量）
   server backup [路径]        备份数据库；不给路径就写到 {VM_DATA_DIR}/backup/vm-YYYY-MM-DD.db
   server reset-password 用户名  重置密码，打印一个新的随机密码
+  server reset-totp 用户名      禁用二步验证（丢失验证器时使用）
   server version              打印版本
 `)
 }
@@ -219,6 +224,16 @@ func run() error {
 	if err := db.Migrate(ctx); err != nil {
 		return err
 	}
+	var savedTZ string
+	if found, err := db.GetSetting(ctx, "site.tz", &savedTZ); err != nil {
+		return err
+	} else if found {
+		l, err := time.LoadLocation(savedTZ)
+		if err != nil {
+			return err
+		}
+		clock.SetLocation(l)
+	}
 	if err := auth.EnsureAdmin(ctx, db); err != nil {
 		return err
 	}
@@ -300,6 +315,7 @@ func run() error {
 	realtime.Agents.OnMetrics(aggregator.OnMetrics)
 	go aggregator.Run(ctx)
 	go metrics.NewRollup(db).Run(ctx)
+	go (&maintenance.Worker{DB: db}).Run(ctx)
 
 	go realtime.Run(ctx)
 
@@ -374,4 +390,25 @@ func describeProxies(tp config.TrustedProxies) string {
 
 func setLogger(level slog.Level) {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})))
+}
+
+func resetTOTPCommand(args []string) error {
+	if len(args) != 1 {
+		return errors.New("用法：server reset-totp 用户名")
+	}
+	_, db, err := openStore()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	u, err := db.GetUserByUsername(context.Background(), args[0])
+	if err != nil {
+		return err
+	}
+	if err = db.ResetTOTP(context.Background(), u.ID); err != nil {
+		return err
+	}
+	audit.Record(context.Background(), db, "auth.totp_reset", "user", args[0], nil, nil)
+	fmt.Println("二步验证已禁用；请重新登录并绑定验证器")
+	return nil
 }
