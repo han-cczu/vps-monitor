@@ -118,3 +118,26 @@ func TestTOTPEnrollmentInvalidatedByPasswordReset(t *testing.T) {
 		t.Fatal("MFA enabled by stale enrollment")
 	}
 }
+
+func TestMFADatabaseFailureDoesNotLockAccount(t *testing.T) {
+	var m *auth.MFA
+	e := newTestEnv(t, func(d *Deps) { m = d.Tokens.NewMFA(); d.MFA = m })
+	u, err := e.db.GetUserByUsername(context.Background(), "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = e.db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Repeated infrastructure faults must not become credential failures/429.
+	for i := 0; i < 6; i++ {
+		ticket, err := m.Ticket(u.ID, u.PasswordHash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, _ := e.do(t, "POST", "/api/auth/mfa", "", map[string]string{"ticket": ticket, "code": "123456"})
+		if resp.StatusCode != 500 {
+			t.Fatalf("database fault %d returned %d", i, resp.StatusCode)
+		}
+	}
+}
