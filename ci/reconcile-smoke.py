@@ -25,7 +25,7 @@ def main():
     parser = argparse.ArgumentParser()
     for name in ['server', 'agent', 'core', 'core-arm64', 'output']:
         parser.add_argument('--' + name, required=True)
-    parser.add_argument('--mihomo', help='also exercise subscriptions and quota with a real Mihomo client')
+    parser.add_argument('--mihomo', help='also exercise Mihomo/sing-box subscriptions and quota with real clients')
     parser.add_argument('--relay', action='store_true', help='also exercise managed A -> isolated B -> local payload and relay removal')
     parser.add_argument('--agent-next', help='optional newer version test build for real self-update')
     args = parser.parse_args()
@@ -265,8 +265,8 @@ def main():
         wait_for('restart complete', lambda: state()['running'] and not state()['last_error'])
         if args.mihomo:
             from subscription_smoke import exercise
-            exercise(args.mihomo, request, base, user, user_api, inbounds, state,
-                     work, port, launch, wait_for, httpd.server_port, evidence)
+            exercise(args.mihomo, core, request, base, user, user_api, inbounds, state,
+                     work, port, launch, stop, wait_for, httpd.server_port, evidence)
         if args.relay:
             from relay_smoke import exercise
             exercise(core, request, node_id, user, state, work, port, launch,
