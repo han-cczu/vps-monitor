@@ -41,6 +41,8 @@ export const paths = {
     },
     /** 设置 */
     settings: {
+      site: `${ROOTS.DASHBOARD}/settings/site`,
+      audit: `${ROOTS.DASHBOARD}/settings/audit`,
       root: `${ROOTS.DASHBOARD}/settings`,
       account: `${ROOTS.DASHBOARD}/settings/account`,
       pingTasks: `${ROOTS.DASHBOARD}/settings/ping-tasks`,

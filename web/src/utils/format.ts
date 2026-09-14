@@ -10,6 +10,18 @@ import { CURRENCY_SYMBOLS, BILLING_CYCLE_LABELS } from 'src/constants/server';
 // ----------------------------------------------------------------------
 
 const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'] as const;
+const BINARY_UNITS = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'] as const;
+let preferredBase: 1000 | 1024 = 1000;
+let preferredTimezone: string | undefined;
+export function setFormatPreferences(base: 1000 | 1024, timezone: string) {
+  preferredBase = base === 1024 ? 1024 : 1000;
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: timezone }).format();
+    preferredTimezone = timezone;
+  } catch {
+    preferredTimezone = undefined;
+  }
+}
 
 /**
  * 字节数转可读容量。
@@ -18,10 +30,10 @@ const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'] as const;
  * 用 1024 会让用户觉得面板少算了。步骤 20 接进设置项后可以按需切换。
  *
  * @example formatBytes(1_500_000_000) => '1.5 GB'
- * @example formatBytes(1_073_741_824, { base: 1024 }) => '1 GB'
+ * @example formatBytes(1_073_741_824, { base: 1024 }) => '1 GiB'
  */
 export function formatBytes(bytes: number, options?: { base?: 1000 | 1024 }): string {
-  const base = options?.base ?? 1000;
+  const base = options?.base ?? preferredBase;
 
   if (!Number.isFinite(bytes) || bytes <= 0) {
     return '0 B';
@@ -41,7 +53,7 @@ export function formatBytes(bytes: number, options?: { base?: 1000 | 1024 }): st
     unit += 1;
   }
 
-  return `${trimNumber(value)} ${BYTE_UNITS[unit]}`;
+  return `${trimNumber(value)} ${base === 1024 ? BINARY_UNITS[unit] : BYTE_UNITS[unit]}`;
 }
 
 /**
@@ -96,14 +108,17 @@ export function daysUntil(expireAt: string | null): number | null {
     return null;
   }
 
-  const target = new Date(`${expireAt}T00:00:00`);
-  if (Number.isNaN(target.getTime())) {
-    return null;
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return Math.round((target.getTime() - today.getTime()) / 86_400_000);
+  const target = Date.parse(`${expireAt}T00:00:00Z`);
+  if (!Number.isFinite(target)) return null;
+  const parts = new Intl.DateTimeFormat('en', {
+    timeZone: preferredTimezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  const today = Date.parse(`${part('year')}-${part('month')}-${part('day')}T00:00:00Z`);
+  return Math.round((target - today) / 86_400_000);
 }
 
 /** 价格 + 周期，如 `$10.79 / 月`；价格为 0 时显示 `—`。 */
@@ -115,7 +130,8 @@ export function formatPrice(price: number, currency: string, cycle: BillingCycle
   const symbol = CURRENCY_SYMBOLS[currency] ?? `${currency} `;
   const amount = Number.isInteger(price) ? String(price) : trimNumber(price);
   // 兜一下未知周期：库里这一列没有 CHECK 约束，真混进别的值也只该显示得难看，不该白屏
-  const cycleLabel = cycle === 'once' ? '一次性' : (BILLING_CYCLE_LABELS[cycle] ?? cycle).replace('付', '');
+  const cycleLabel =
+    cycle === 'once' ? '一次性' : (BILLING_CYCLE_LABELS[cycle] ?? cycle).replace('付', '');
 
   return `${symbol}${amount} / ${cycleLabel}`;
 }
@@ -125,4 +141,15 @@ export function formatPrice(price: number, currency: string, cycle: BillingCycle
 /** 最多两位小数，并去掉尾随的 0（1.50 → 1.5，2.00 → 2）。 */
 function trimNumber(value: number): string {
   return String(Math.round(value * 100) / 100);
+}
+
+/** Calendar date in the configured panel timezone (input: Unix seconds). */
+export function formatPanelDate(unixSeconds: number): string {
+  if (!Number.isFinite(unixSeconds)) return '—';
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: preferredTimezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(unixSeconds * 1000));
 }

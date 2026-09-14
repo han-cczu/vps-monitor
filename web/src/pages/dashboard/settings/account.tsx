@@ -1,5 +1,6 @@
 import { CONFIG } from 'src/global-config';
 
+import { SecurityView } from 'src/sections/settings/security-view';
 import { AccountLayout } from 'src/sections/account/account-layout';
 import { AccountChangePassword } from 'src/sections/account/account-change-password';
 
@@ -14,6 +15,7 @@ export default function Page() {
 
       <AccountLayout>
         <AccountChangePassword />
+        <SecurityView />
       </AccountLayout>
     </>
   );

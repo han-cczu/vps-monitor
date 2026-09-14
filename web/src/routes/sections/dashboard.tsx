@@ -10,6 +10,8 @@ import { RealtimeProvider } from 'src/ws/realtime-provider';
 
 import { LoadingScreen } from 'src/components/loading-screen';
 
+import { SitePreferences } from 'src/sections/settings/site-preferences';
+
 import { AuthGuard } from 'src/auth/guard';
 
 import { usePathname } from '../hooks';
@@ -25,6 +27,8 @@ const SubscribersPage = lazy(() => import('src/pages/dashboard/subscribers'));
 const AlertsPage = lazy(() => import('src/pages/dashboard/alerts'));
 const PingTasksPage = lazy(() => import('src/pages/dashboard/settings/ping-tasks'));
 const CoreFilesPage = lazy(() => import('src/pages/dashboard/settings/corefiles'));
+const SettingsSitePage = lazy(() => import('src/pages/dashboard/settings/site'));
+const SettingsAuditPage = lazy(() => import('src/pages/dashboard/settings/audit'));
 const SettingsAccountPage = lazy(() => import('src/pages/dashboard/settings/account'));
 
 // ----------------------------------------------------------------------
@@ -50,7 +54,9 @@ export const dashboardRoutes: RouteObject[] = [
     // RealtimeProvider 放在 AuthGuard 之内：登录之后才连 WebSocket，登出即断开
     element: (
       <AuthGuard>
-        <RealtimeProvider>{dashboardLayout()}</RealtimeProvider>
+        <RealtimeProvider>
+          <SitePreferences>{dashboardLayout()}</SitePreferences>
+        </RealtimeProvider>
       </AuthGuard>
     ),
     children: [
@@ -77,6 +83,8 @@ export const dashboardRoutes: RouteObject[] = [
           // 设置默认进入账号页，其他设置从页内标签进入。
           { index: true, element: <Navigate to={paths.dashboard.settings.account} replace /> },
           { path: 'account', element: <SettingsAccountPage /> },
+          { path: 'site', element: <SettingsSitePage /> },
+          { path: 'audit', element: <SettingsAuditPage /> },
           { path: 'ping-tasks', element: <PingTasksPage /> },
           { path: 'corefiles', element: <CoreFilesPage /> },
         ],
