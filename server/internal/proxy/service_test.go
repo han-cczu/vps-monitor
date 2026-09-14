@@ -289,7 +289,7 @@ func TestMigrationCascadesAndCoreInitialization(t *testing.T) {
 	if _, err := s.SaveAdvanced(ctx, nodes[0], []byte(`{"route":{"rules":[]}}`)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO config_revisions VALUES(?,1,'{}','sha',1,'test')`, nodes[0]); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO config_revisions(server_id,revision,config_json,sha256,created_at,created_by) VALUES(?,1,'{}','sha',1,'test')`, nodes[0]); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO subscriber_traffic VALUES(?,?,?,1,2)`, sub.ID, nodes[0], sub.PeriodStart); err != nil {

@@ -1,0 +1,65 @@
+{
+  "experimental": {
+    "v2ray_api": {
+      "listen": "127.0.0.1:10085",
+      "stats": {
+        "enabled": true,
+        "inbounds": [
+          "vless-24443"
+        ],
+        "users": [
+          "sub-1"
+        ]
+      }
+    }
+  },
+  "inbounds": [
+    {
+      "listen": "::",
+      "listen_port": 24443,
+      "tag": "vless-24443",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "www.microsoft.com",
+            "server_port": 443
+          },
+          "max_time_difference": "1m",
+          "private_key": "CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg",
+          "short_id": [
+            "0123456789abcdef"
+          ]
+        },
+        "server_name": "www.microsoft.com"
+      },
+      "type": "vless",
+      "users": [
+        {
+          "flow": "xtls-rprx-vision",
+          "name": "sub-1",
+          "uuid": "00000000-0000-4000-8000-000000000001"
+        }
+      ]
+    }
+  ],
+  "log": {
+    "level": "warn",
+    "timestamp": true
+  },
+  "outbounds": [
+    {
+      "tag": "direct",
+      "type": "direct"
+    }
+  ],
+  "route": {
+    "final": "direct",
+    "rules": [
+      {
+        "action": "sniff"
+      }
+    ]
+  }
+}

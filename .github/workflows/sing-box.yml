@@ -78,6 +78,9 @@ jobs:
       - name: 两用户流量与 reset 验证
         working-directory: panel/ci/sing-box-stats
         run: go run . -core "$GITHUB_WORKSPACE/dist/sing-box-${CORE_VERSION}-linux-${CORE_ARCH}" -output "$GITHUB_WORKSPACE/stats-${CORE_ARCH}.json"
+      - name: 面板四协议渲染与真实预检
+        working-directory: panel/server
+        run: SING_BOX_BIN="$GITHUB_WORKSPACE/dist/sing-box-${CORE_VERSION}-linux-${CORE_ARCH}" go test ./internal/proxy/render -count=1
       - uses: actions/upload-artifact@v4
         with:
           name: core-${{ matrix.arch }}

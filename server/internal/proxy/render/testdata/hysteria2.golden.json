@@ -1,0 +1,80 @@
+{
+  "experimental": {
+    "v2ray_api": {
+      "listen": "127.0.0.1:10085",
+      "stats": {
+        "enabled": true,
+        "inbounds": [
+          "hy2-28443"
+        ],
+        "users": [
+          "sub-1"
+        ]
+      }
+    }
+  },
+  "inbounds": [
+    {
+      "down_mbps": 100,
+      "ignore_client_bandwidth": false,
+      "listen": "::",
+      "listen_port": 28443,
+      "obfs": {
+        "password": "fixture-obfs",
+        "type": "salamander"
+      },
+      "tag": "hy2-28443",
+      "tls": {
+        "alpn": [
+          "h3"
+        ],
+        "certificate": [
+          "-----BEGIN CERTIFICATE-----",
+          "MIIBezCCASGgAwIBAgIRANch++bfCilFvrCwfnj6wB4wCgYIKoZIzj0EAwIwFzEV",
+          "MBMGA1UEAxMMd3d3LmJpbmcuY29tMB4XDTI2MDkxMzIzMDAwMFoXDTM2MDkxMTAw",
+          "MDAwMFowFzEVMBMGA1UEAxMMd3d3LmJpbmcuY29tMFkwEwYHKoZIzj0CAQYIKoZI",
+          "zj0DAQcDQgAEicPKFqFN6tiszSQgXmQQKxRE3ByJ7UqOHwnRXGCPhoNrnPfZYovJ",
+          "LeiYy7pb5vlsvT8jQrWqcma6ETijdwxGdKNOMEwwDgYDVR0PAQH/BAQDAgOIMBMG",
+          "A1UdJQQMMAoGCCsGAQUFBwMBMAwGA1UdEwEB/wQCMAAwFwYDVR0RBBAwDoIMd3d3",
+          "LmJpbmcuY29tMAoGCCqGSM49BAMCA0gAMEUCIAwHqTwld6+zcXRM6raxLW5Zkpcy",
+          "G9e3d0xfhJ6+fBLSAiEA9ZmY+Ok9R9ifqeCqlajTtSZx+4KL3nDuPeZEl0U4kQI=",
+          "-----END CERTIFICATE-----"
+        ],
+        "enabled": true,
+        "key": [
+          "-----BEGIN EC PRIVATE KEY-----",
+          "MHcCAQEEIGWCjRpQ/GRCmW/bZliBCiy17GwVt1RPJsbg7ohd9T52oAoGCCqGSM49",
+          "AwEHoUQDQgAEicPKFqFN6tiszSQgXmQQKxRE3ByJ7UqOHwnRXGCPhoNrnPfZYovJ",
+          "LeiYy7pb5vlsvT8jQrWqcma6ETijdwxGdA==",
+          "-----END EC PRIVATE KEY-----"
+        ]
+      },
+      "type": "hysteria2",
+      "up_mbps": 100,
+      "users": [
+        {
+          "name": "sub-1",
+          "password": "fixture-password"
+        }
+      ]
+    }
+  ],
+  "log": {
+    "level": "warn",
+    "timestamp": true
+  },
+  "outbounds": [
+    {
+      "tag": "direct",
+      "type": "direct"
+    }
+  ],
+  "route": {
+    "final": "direct",
+    "rules": [
+      {
+        "action": "sniff"
+      }
+    ]
+  }
+}

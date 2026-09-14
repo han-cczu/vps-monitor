@@ -145,6 +145,9 @@ func (d *Deps) setCurrentCore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	audit.Record(r.Context(), d.DB, "corefile.set_current", "corefile", in.Version, nil, map[string]string{"version": in.Version})
+	if d.Reconciler != nil {
+		d.Reconciler.CurrentChanged(r.Context())
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"version": in.Version})
 }
 func (d *Deps) deleteCoreVersion(w http.ResponseWriter, r *http.Request) {

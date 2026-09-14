@@ -32,6 +32,7 @@ import (
 	"vpsmon/server/internal/hub"
 	"vpsmon/server/internal/metrics"
 	"vpsmon/server/internal/ping"
+	"vpsmon/server/internal/proxy"
 	"vpsmon/server/internal/store"
 	"vpsmon/server/web"
 )
@@ -256,6 +257,26 @@ func run() error {
 	// HTTP 收尾后停止接收结果，等待最后一批落库，再关闭数据库。
 	defer func() { stopPing(); <-pingDone }()
 
+	reconciler := proxy.NewReconciler(db, proxy.ReconcilerOptions{
+		Agents: realtime.Agents, Check: cores.CheckConfig,
+		Artifact: func(ctx context.Context, v, a string) (corefiles.Artifact, error) {
+			f, meta, err := cores.Open(v, a)
+			if f != nil {
+				f.Close()
+			}
+			return meta, err
+		},
+		Failed: func(id int64) {
+			realtime.Bus.Publish(hub.Event{Kind: hub.EventCoreApplyFailed, ServerID: id, At: clock.Now()})
+		},
+	})
+	realtime.Agents.OnCore(reconciler.Handle, reconciler.OnAgentHello)
+	realtime.Registry.SetCoreSource(reconciler.SnapshotFor)
+	proxyCtx, stopProxy := context.WithCancel(context.Background())
+	proxyDone := make(chan struct{})
+	go func() { defer close(proxyDone); reconciler.Run(proxyCtx) }()
+	defer func() { stopProxy(); <-proxyDone }()
+
 	// 指标聚合：每条 metrics 先进内存桶，每分钟落一次库；每小时降采样并清理过期数据
 	aggregator := metrics.New(db)
 	realtime.Agents.OnMetrics(aggregator.OnMetrics)
@@ -276,6 +297,8 @@ func run() error {
 		Hub:            realtime,
 		Ping:           pings,
 		CoreFiles:      cores,
+		Proxy:          proxy.New(db, reconciler),
+		Reconciler:     reconciler,
 	})
 
 	srv := &http.Server{

@@ -454,7 +454,7 @@ sqlite3 ./data/vm.db "INSERT INTO settings (key,value) VALUES ('retention.ping_d
 
 在「设置 → 代理核心」分别上传两架构文件，或输入公开 GitHub Release 文件链接下载；同时填写该次构建的 SHA256SUMS 对应值。官方默认包缺少 V2Ray API 标签，不能代替本项目构建产物。每个文件最多 64 MiB；同版本同架构不能换内容，要重建时应使用新的版本标识，或先删除未使用版本再重新上传。
 
-两个架构齐全后点击「设为当前」并确认。面板复制本机 CPU 架构文件为 `/data/corefiles/current-local`，不会自动安装或升级节点；第 11 步已有 Agent 本地安装入口，面板下发和操作页由第 13/14 步接通。Linux distroless 部署可验证：
+两个架构齐全后点击「设为当前」并确认。面板复制本机 CPU 架构文件为 `/data/corefiles/current-local`，不会自动安装或升级节点；第 13 步已接通面板操作 API，操作页由第 14 步实现。Linux distroless 部署可验证：
 
 ```sh
 docker compose exec server /data/corefiles/current-local version
@@ -508,11 +508,11 @@ vps-agent core restart
 
 ufw/firewalld 的规则只添加，不回收。普通 Agent 卸载保留 sing-box、日志及核心状态；`uninstall.sh --purge-core` 才全部删除这些受管文件。该选项不撤销防火墙规则。
 
-本地真实验收及安全清理步骤见 [verify/corectl.md](verify/corectl.md)。面板核心操作 UI 和配置下发由后续第 13/14 步实现。
+本地真实验收及安全清理步骤见 [verify/corectl.md](verify/corectl.md)。第 13 步已接通面板下发，核心操作 UI 仍由第 14 步实现。
 
 ## 16. 代理数据和凭据管理（步骤 12）
 
-本步提供管理员 API，代理/订阅页面仍待第 14/15 步实现；保存后只更新数据库，当前节点配置不会变化。完整字段和错误码见 [protocol.md 第 8 节](protocol.md#8-代理数据与凭据步骤-12)。新二进制启动时自动应用 0005 迁移，不需要手工创建表；上线前按已有备份流程保存数据库。回退旧版本时恢复匹配的备份，不在有业务数据的库上直接执行删除九张表的 Down 迁移。
+第 12 步提供管理员数据 API，第 13 步已接通异步下发；代理/订阅页面仍待第 14/15 步实现。完整字段和错误码见 [protocol.md 第 8 节](protocol.md#8-代理数据与凭据步骤-12)。新二进制启动时自动应用 0005/0006 迁移，不需要手工创建表；上线前按已有备份流程保存数据库。回退旧版本时恢复匹配的备份，不在有业务数据的库上直接执行删除九张表的 Down 迁移。
 
 使用登录获得的管理员 JWT 调用以下接口（示例为请求体，不含真实凭据）：
 
@@ -544,10 +544,33 @@ PUT /api/inbounds/1
 | 用户 reset-usage | 清零当前用量及当前账期节点汇总，保留历史；只解除 quota 自动禁用，不解除 expired 或手动禁用 |
 | assignments 传空数组 | 清空该用户全部入站分配；传错 ID 会整体失败，保留原分配 |
 
-旋转凭据、证书和配置对实际连接的影响，需要第 13 步下发闭环接通后才生效；订阅 URL 服务由第 15 步实现。此阶段不能用接口成功响应判断客户端已断开或新配置已运行。`GET /api/servers/{id}/core` 当前只返回初始化的数据库行，不能代表 Agent 的实时状态。
+旋转凭据、证书和配置会在提交后触发合并渲染与下发；以 `GET /api/servers/{id}/core` 的 online、running、desired/applied、pending 和 last_error 判断实际结果。数据接口成功不代表 Agent 已应用。订阅 URL 服务仍由第 15 步实现，reset-token 只改订阅 token，不要求重启节点。
 
 证书指纹用于后续客户端配置；证书为自签，API 不返回 key_pem。数据库备份包含代理私钥和用户凭据，按面板数据目录的敏感文件管理。管理员用户详情/创建/修改响应包含凭据，列表省略；代理接口都禁止缓存，审计会脱敏。
 
 高级 JSON 通过 `PUT /api/servers/{id}/advanced` 的 extra_json 对象全量替换；传 `{ "extra_json": {} }` 清空。不可覆盖受管的 inbounds/experimental/log 或使用 outbound tag=direct。通过结构校验代表数据已保存，完整配置检查与可运行性由第 13 步验证。
 
 本步本地验收结果见 [verify/proxy-model.md](verify/proxy-model.md)。测试使用独立 SQLite，未迁移或重启当前运行面板。
+
+## 17. 面板核心闭环（步骤 13）
+
+准备两架构托管核心并选为当前；等待 Agent 上线后，调用 `POST /api/servers/{id}/core/install`。收到 202 与 req_id 表示已入队，接着查看 GET core 的 installed_version。安装不会自动升级其它节点；对应节点版本与目标相同时，对齐器自动应用最新配置。
+
+入站/用户/分配/证书/高级 JSON 的写入合并等待默认 5 s，之后预检、产生修订并下发。执行这些步骤需要额外时间，5 s 不是总应用超时。`POST .../core/apply` 可立即按当前数据渲染并重发，相同内容复用修订；Agent 离线时仍可生成 desired，重连后自动补发。
+
+| 现象 | 检查与处理 |
+|---|---|
+| pending=true，提示目标版本未安装 | 显式调用 core/install；选择当前版本不会自动升级节点 |
+| 预检失败，没有新修订 | 修正数据库中的入站/高级 JSON。接口不回传可能含密钥的核心 stderr；管理员可取完整修订或在受控 Linux 环境检查配置 |
+| 端口应用失败，仍显示旧 applied_revision | Agent 已尝试恢复旧配置；查看 last_error 和 core/logs，检查被其它进程占用的端口 |
+| Agent 无响应/三次重试耗尽 | 检查在线连接和本机核心；修复后手动 core/apply 或重连。重试为 10/30/60 s，单次等待 60 s |
+| Windows 面板提示跳过预检 | Linux 核心不能在 Windows 执行；Agent 仍严格 check。部署到 Linux 面板可同时启用两端预检 |
+| 配置里没有可用用户 | 确认 enabled、auto_disabled 和分配；SS 空用户保持拒绝旧用户凭据的多用户模式 |
+| 用户传输了流量但面板还未变化 | Agent 约每 10 s 采集、面板每 60 s 落库，等待两个阶段；查看 Agent 统计错误和面板“代理流量落库失败” |
+| 清零后历史日流量仍在 | 正常；清零只移除当前账期汇总，并隔离清零前未刷新的缓存，保留 daily 历史 |
+
+`GET .../core/revisions` 查看最近 20 条；`GET .../core/revisions/{rev}` 含完整配置和凭据。`POST .../core/rollback/{rev}` 把旧内容作为新修订下发，使用旧修订的核心版本；若该资产已删除，先恢复对应版本。回滚不改入站/用户表，之后的数据修改或手动 apply 会恢复按当前数据渲染。仅重启面板不会撤销回滚。
+
+`GET .../core/logs?lines=200` 从 Agent 取最多 1000 行、64 KiB，10 s 超时为 504，离线为 409。`POST .../core/restart` 返回 202 后继续观察 core 状态。所有接口需要管理员 JWT；Agent Token 只能接入 Agent 通道和下载资产。
+
+真实生命周期、50 MiB 计费与清理证据见 [verify/reconciler.md](verify/reconciler.md)。正常关停会冲刷已接收的用量；统计无持久消息队列，强杀/断链不能保证精确一次。真实防火墙、公网 TLS 和 ARM64 真机验收仍待补。

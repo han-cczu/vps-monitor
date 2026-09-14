@@ -69,17 +69,20 @@ type AgentHub struct {
 	onPing func(serverID int64, raw []byte)
 	// buildConfig 决定连上时下发什么 config；没设时只下发上报间隔
 	buildConfig func(serverID int64) any
+	onCore      func(context.Context, int64, []byte)
+	onHello     func(int64)
 }
 
 // agentConn 是一条 agent 连接。写统一走 send 通道，由 writeLoop 串行发出，
 // 这样任意协程都能安全地 SendTo，不必和读循环抢 conn。
 type agentConn struct {
-	serverID int64
-	conn     *websocket.Conn
-	send     chan []byte
-	cancel   context.CancelFunc
-	closed   chan struct{}
-	once     sync.Once
+	serverID  int64
+	conn      *websocket.Conn
+	send      chan []byte
+	cancel    context.CancelFunc
+	closed    chan struct{}
+	once      sync.Once
+	helloSeen bool // protected by AgentHub.mu; periodic hello is not a reconnect
 }
 
 // NewAgentHub 新建 agent 接入层。
@@ -105,6 +108,13 @@ func (h *AgentHub) OnPing(fn func(serverID int64, raw []byte)) {
 	h.hookMu.Lock()
 	h.onPing = fn
 	h.hookMu.Unlock()
+}
+
+func (h *AgentHub) OnCore(fn func(context.Context, int64, []byte), hello func(int64)) {
+	h.hookMu.Lock()
+	defer h.hookMu.Unlock()
+	h.onCore = fn
+	h.onHello = hello
 }
 
 // SetConfigBuilder 设置「agent 连上时下发什么 config」。
@@ -188,6 +198,12 @@ func (h *AgentHub) readLoop(ctx context.Context, ac *agentConn) error {
 		if err != nil {
 			return err
 		}
+		h.mu.Lock()
+		current := h.conns[ac.serverID] == ac
+		h.mu.Unlock()
+		if !current {
+			return context.Canceled
+		}
 		h.dispatch(ctx, ac.serverID, data)
 	}
 }
@@ -206,6 +222,13 @@ func (h *AgentHub) dispatch(ctx context.Context, serverID int64, raw []byte) {
 		h.handleHello(ctx, serverID, raw)
 	case proto.TypeMetrics:
 		h.handleMetrics(serverID, raw)
+	case proto.TypeCoreState, proto.TypeCoreStats, proto.TypeCoreLogs:
+		h.hookMu.RLock()
+		handler := h.onCore
+		h.hookMu.RUnlock()
+		if handler != nil {
+			handler(ctx, serverID, raw)
+		}
 	case proto.TypePing:
 		h.hookMu.RLock()
 		onPing := h.onPing
@@ -272,6 +295,19 @@ func (h *AgentHub) handleHello(ctx context.Context, serverID int64, raw []byte) 
 	})
 	if err != nil {
 		slog.Error("写入节点静态信息失败", "server_id", serverID, "err", err)
+	}
+	h.hookMu.RLock()
+	onHello := h.onHello
+	h.hookMu.RUnlock()
+	h.mu.Lock()
+	first := false
+	if ac := h.conns[serverID]; ac != nil && !ac.helloSeen {
+		ac.helloSeen = true
+		first = true
+	}
+	h.mu.Unlock()
+	if onHello != nil && first {
+		onHello(serverID)
 	}
 }
 

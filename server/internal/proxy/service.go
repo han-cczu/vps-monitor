@@ -1,5 +1,5 @@
-// Package proxy owns proxy configuration transactions. It does not render or
-// deploy configurations; committed changes are announced through Notifier.
+// Package proxy owns proxy data, rendering reconciliation and usage accounting.
+// CRUD transactions announce committed changes through Notifier.
 package proxy
 
 import (

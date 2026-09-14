@@ -297,6 +297,10 @@ func (q ProxyQueries) Assign(ctx context.Context, subscriberID int64, ids []int6
 	return nil
 }
 func (q ProxyQueries) ClearCurrentUsage(ctx context.Context, s *Subscriber) error {
+	// Invalidate unflushed samples captured before this reset.
+	if _, err := q.DB.ExecContext(ctx, "UPDATE subscribers SET usage_epoch=usage_epoch+1 WHERE id=?", s.ID); err != nil {
+		return err
+	}
 	_, err := q.DB.ExecContext(ctx, "DELETE FROM subscriber_traffic WHERE subscriber_id=? AND period_start=?", s.ID, s.PeriodStart)
 	return err
 }

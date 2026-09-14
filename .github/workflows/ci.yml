@@ -35,7 +35,7 @@ jobs:
         run: go test -race ./agent/internal/corectl ./agent/internal/transport ./agent/internal/ping
 
       - name: proxy concurrency checks
-        run: go test -race ./server/internal/proxy/... ./server/internal/store ./server/internal/api
+        run: go test -race ./server/internal/proxy/... ./server/internal/store ./server/internal/api ./server/internal/hub ./server/internal/corefiles
 
       - name: go build (agent 交叉编译)
         run: |

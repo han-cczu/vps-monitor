@@ -267,6 +267,9 @@ func (d *Deps) deleteServer(w http.ResponseWriter, r *http.Request) {
 
 	d.Hub.Disconnect(before.ID, "server deleted")
 	d.Hub.Remove(before.ID)
+	if d.Reconciler != nil {
+		d.Reconciler.Forget(before.ID)
+	}
 	if d.Ping != nil {
 		d.Ping.Forget(before.ID)
 	}

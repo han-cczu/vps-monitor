@@ -1,0 +1,50 @@
+{
+  "experimental": {
+    "v2ray_api": {
+      "listen": "127.0.0.1:10085",
+      "stats": {
+        "enabled": true,
+        "inbounds": [
+          "ss-28388"
+        ],
+        "users": [
+          "sub-1"
+        ]
+      }
+    }
+  },
+  "inbounds": [
+    {
+      "listen": "::",
+      "listen_port": 28388,
+      "method": "2022-blake3-aes-128-gcm",
+      "password": "AQEBAQEBAQEBAQEBAQEBAQ==",
+      "tag": "ss-28388",
+      "type": "shadowsocks",
+      "users": [
+        {
+          "name": "sub-1",
+          "password": "AgICAgICAgICAgICAgICAg=="
+        }
+      ]
+    }
+  ],
+  "log": {
+    "level": "warn",
+    "timestamp": true
+  },
+  "outbounds": [
+    {
+      "tag": "direct",
+      "type": "direct"
+    }
+  ],
+  "route": {
+    "final": "direct",
+    "rules": [
+      {
+        "action": "sniff"
+      }
+    ]
+  }
+}

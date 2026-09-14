@@ -33,6 +33,7 @@ func (d *Deps) proxyRoutes(r chi.Router) {
 		r.Get("/servers/{id}/advanced", d.proxyGetAdvanced)
 		r.Put("/servers/{id}/advanced", d.proxyPutAdvanced)
 		r.Get("/servers/{id}/core", d.proxyGetCore)
+		d.coreRoutes(r)
 		r.Get("/subscribers", d.proxyListSubscribers)
 		r.Post("/subscribers", d.proxyCreateSubscriber)
 		r.Get("/subscribers/{id}", d.proxyGetSubscriber)
@@ -230,6 +231,14 @@ func (d *Deps) proxyPutAdvanced(w http.ResponseWriter, r *http.Request) {
 func (d *Deps) proxyGetCore(w http.ResponseWriter, r *http.Request) {
 	id, ok := proxyID(w, r)
 	if !ok {
+		return
+	}
+	if d.Reconciler != nil {
+		core, err := d.Reconciler.View(r.Context(), id)
+		if coreOperationError(w, err) {
+			return
+		}
+		writeJSON(w, 200, map[string]any{"core": core})
 		return
 	}
 	core, err := d.Proxy.Core(r.Context(), id)

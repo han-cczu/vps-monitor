@@ -62,6 +62,7 @@ type Registry struct {
 
 	// pingSource 由 ping 服务在装配时挂上；没挂时快照里的 ping 恒为空数组。
 	pingSource func(serverID int64) []PingView
+	coreSource func(serverID int64) any
 
 	cacheMu sync.Mutex
 	cache   []store.Server
@@ -159,6 +160,9 @@ func (r *Registry) WarmHostInfo(ctx context.Context) error {
 func (r *Registry) SetPingSource(fn func(serverID int64) []PingView) {
 	r.pingSource = fn
 }
+
+// SetCoreSource is registered once before serving/broadcasting.
+func (r *Registry) SetCoreSource(fn func(int64) any) { r.coreSource = fn }
 
 // Remove 删掉一台节点的内存态（节点被删除时调用）。
 func (r *Registry) Remove(id int64) {
@@ -305,7 +309,7 @@ type ServerView struct {
 	Traffic any `json:"traffic"` // 步骤 18 填充，现在恒为 null
 	// 延迟任务（步骤 09）。没有适用任务时是空数组；尚无结果用 last_ts=null 表示。
 	Ping []PingView `json:"ping"`
-	Core any        `json:"core"` // 步骤 13 填充，现在恒为 null
+	Core any        `json:"core"` // 步骤 13：核心状态摘要
 }
 
 // PingView 是快照里的一条延迟信息。
@@ -381,6 +385,9 @@ func (r *Registry) viewFor(s *store.Server) ServerView {
 		if views := r.pingSource(s.ID); views != nil {
 			v.Ping = views
 		}
+	}
+	if r.coreSource != nil {
+		v.Core = r.coreSource(s.ID)
 	}
 
 	st, ok := r.Get(s.ID)

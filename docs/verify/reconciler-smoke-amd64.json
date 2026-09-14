@@ -1,0 +1,26 @@
+{
+  "platform": "Linux amd64 / systemd",
+  "checks": {
+    "install_four_protocols_apply_state": true,
+    "rapid_writes_one_revision": true,
+    "real_50mib_user_accounting": true,
+    "occupied_port_preserves_old_config_and_rollback": true,
+    "real_log_request_response": true,
+    "offline_edit_reconnect_apply": true,
+    "empty_ss_users_reject_former_credentials": true,
+    "panel_restart_retains_revision": true
+  },
+  "payload_bytes": 52428800,
+  "first_revision": 1,
+  "listening": [
+    "45935/udp",
+    "46289/udp",
+    "46469/tcp",
+    "46469/udp",
+    "47353/tcp"
+  ],
+  "firewall": "none",
+  "traffic_used": 52429003,
+  "accounting_seconds": 43.402,
+  "passed": true
+}

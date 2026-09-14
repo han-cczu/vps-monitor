@@ -47,11 +47,12 @@ type Deps struct {
 
 	// Hub 是实时状态中心。为 nil 时两个 WS 端点不注册、REST 里的 online 恒为 false，
 	// 单元测试就是这么跑的（hub 的行为由 hub 包自己的测试覆盖）。
-	Hub       *hub.Hub
-	Ping      *ping.Service
-	CoreFiles *corefiles.Store
-	Proxy     *proxy.Service
-	coreSlots chan struct{}
+	Hub        *hub.Hub
+	Ping       *ping.Service
+	CoreFiles  *corefiles.Store
+	Proxy      *proxy.Service
+	Reconciler *proxy.Reconciler
+	coreSlots  chan struct{}
 
 	// verifySem 由 NewRouter 初始化，限制并发密码校验数。
 	verifySem chan struct{}

@@ -37,6 +37,15 @@ export type ConnStat = {
   udp: number;
 };
 
+export type CoreSummary = {
+  installed: boolean;
+  running: boolean;
+  version: string;
+  users: number;
+  pending: boolean;
+  error: string | null;
+};
+
 /** 一台节点的实时快照 */
 export type ServerSnapshot = {
   id: number;
@@ -77,8 +86,8 @@ export type ServerSnapshot = {
   traffic: null;
   /** 启用的延迟任务摘要；无任务时为空数组 */
   ping: PingSummary[];
-  /** sing-box 核心状态：步骤 13 填充，在那之前恒为 null */
-  core: null;
+  /** sing-box 核心状态；未装配核心服务时为 null */
+  core: CoreSummary | null;
 };
 
 /** server → 浏览器的整帧快照 */

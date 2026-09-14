@@ -421,7 +421,7 @@ URL 获取只接受 `https://github.com/{owner}/{repo}/releases/download/{tag}/{
 
 ## 7. Agent 核心管理消息（步骤 11）
 
-Agent 接收端已实现；服务端渲染、下发和上报入库仍由步骤 13 接通。字段采用 `proto/core.go` 的蛇形 JSON，未知字段、类型或动作拒绝。未定义的顶层消息仅记 WARN。
+Agent 接收端与第 13 步服务端渲染、下发、上报入库均已接通。字段采用 `proto/core.go` 的蛇形 JSON，未知字段、类型或动作拒绝。未定义的顶层消息仅记 WARN。
 
 ```json
 {"type":"core.action","action":"install","version":"v1.14.0","file":"sing-box-linux-amd64","sha256":"<64位小写SHA256>","req_id":"install-1"}
@@ -448,7 +448,7 @@ Agent 接收端已实现；服务端渲染、下发和上报入库仍由步骤 1
 
 ## 8. 代理数据与凭据（步骤 12）
 
-以下 20 个方法/路径组合均需要管理员 JWT，Agent Token 不可访问；响应使用 `Cache-Control: no-store`。本步只保存数据，变更提交后调用 NoopNotifier；渲染、下发、核心状态/流量入库由步骤 13 接通。
+以下 20 个方法/路径组合均需要管理员 JWT，Agent Token 不可访问；响应使用 `Cache-Control: no-store`。第 12 步建立数据接口，第 13 步已把提交后的变更通知接入对齐器；保存成功表示数据落库，实际下发/应用状态见第 9 节。
 
 | 方法与路径 | 请求 / 响应 |
 |---|---|
@@ -462,7 +462,7 @@ Agent 接收端已实现；服务端渲染、下发和上报入库仍由步骤 1
 | `POST /api/servers/{id}/cert/regenerate` | `{sni?}` 或空体；`{cert}` |
 | `GET /api/servers/{id}/advanced` | `{advanced:{server_id,extra_json,updated_at}}`，未设置时 extra_json 为 `{}`、updated_at 为 null |
 | `PUT /api/servers/{id}/advanced` | `{extra_json:{...}}` 全量替换；`{advanced}` |
-| `GET /api/servers/{id}/core` | `{core: NodeCore}`，本步返回初始数据库状态 |
+| `GET /api/servers/{id}/core` | `{core: NodeCore}`，第 13 步增加实时字段，见第 9 节 |
 | `GET /api/subscribers` | `{subscribers: Subscriber[]}`，不含四项凭据，按 ID 排序 |
 | `POST /api/subscribers` | Subscriber 可写字段；201 `{subscriber}` |
 | `GET /api/subscribers/{id}` | `{subscriber}`，含四项凭据 |
@@ -496,7 +496,7 @@ settings 最大 64 KiB，不接受未知字段和 null 字段；省略密钥时�
 
 Cert 响应字段为 `server_id`、`sni`、`cert_pem`、`fingerprint_sha256`、`not_after`、`created_at`，两个时间为 Unix 秒。证书为 ECDSA P-256 自签，SAN 包含 SNI，有效期为生成时刻前 1 小时至后 3650 天。指纹是 DER 的 SHA256、大写 hex、冒号分隔。key_pem 只保存在数据库，API 不返回。
 
-NodeCore 含 `server_id`、`core`、`desired_version`、`installed_version`、`running`、`applied_revision`、`desired_revision`、`config_sha256`、`listening`、`firewall`、`last_error`、`updated_at`。既有和新建节点都会初始化：core=sing-box、running=false、修订号=0、listening=[]，其余可空字段为 null。本步该响应不能作为在线节点是否运行核心的依据。
+NodeCore 含 `server_id`、`core`、`desired_version`、`installed_version`、`running`、`applied_revision`、`desired_revision`、`config_sha256`、`listening`、`firewall`、`last_error`、`updated_at`。既有和新建节点都会初始化：core=sing-box、running=false、修订号=0、listening=[]，其余可空字段为 null。第 13 步开始由 Agent core.state 更新实际状态，离线时保留最后观察值。
 
 ### Subscriber 与高级 JSON
 
@@ -506,10 +506,42 @@ Subscriber 可写字段为 `name`（1–64 字）、`note`（最多 2000 字）�
 
 分配最多 1000 项，ID 必须为正数、不重复且入站存在，`[]` 清空，省略或 null 拒绝；任何无效 ID 都不改变原分配。提交后通知变更前后涉及的节点，按节点去重。reset-token 保持三项代理凭据；regenerate-credentials 保持订阅 token。reset-usage 将 traffic_used 清零并删除当前 period_start 对应的节点汇总，将 quota 自动禁用恢复为 none；不改变 period_start、手动 enabled、expired 状态、过去账期或每日历史。
 
-extra_json 必须为最多 256 KiB 的对象；禁止顶层 inbounds/experimental/log。outbounds 必须为最多 1000 个对象，含非空 type 和唯一 tag，tag 不可为受管的 direct。route 必须为对象，rules 若存在必须为对象数组，final 若存在必须是非空字符串。其它顶层项可存储，完整合并与 sing-box check 留给步骤 13。
+extra_json 必须为最多 256 KiB 的对象；禁止顶层 inbounds/experimental/log。outbounds 必须为最多 1000 个对象，含非空 type 和唯一 tag，tag 不可为受管的 direct。route 必须为对象，rules 若存在必须为对象数组，final 若存在必须是非空字符串。其它顶层项可存储；完整合并与 sing-box check 由第 13 步异步执行。
 
 ### 事务、审计与迁移
 
 迁移 `0005_proxy.sql` 创建 inbounds、certs、node_core、config_revisions、node_advanced、subscribers、subscriber_assignments、subscriber_traffic、subscriber_traffic_daily。删除节点级联删除入站/证书/核心状态/修订/高级 JSON/分配，保留已计入用户额度的流量记录；删除用户才级联删除其流量。入站与用户 ID 使用 AUTOINCREMENT，不复用已删除 ID。
 
 所有代理写入使用 BEGIN IMMEDIATE，业务修改和审计同事务；审计失败回滚业务。提交成功后才通知节点。审计动作包括 `inbound.create/update/delete/regenerate_keys`、`cert.generate/regenerate`、`node_advanced.update`、`subscriber.create/update/delete/reset_token/regenerate_credentials/reset_usage`、`assignment.update`。私钥、PSK、密码、用户凭据与 token 替换为 `***`；高级 JSON 仅记录大小、SHA256 与脱敏标记，避免任意扩展字段中的密钥进入审计。
+
+## 9. 核心对齐、操作与统计（步骤 13）
+
+以下接口均要求管理员 JWT，返回 no-store。核心详情沿用第 8 节 NodeCore 字段，并增加 `online`（当前 Agent 连接是否可用）、`current_version`（当前托管版本）、`pending`、`inbounds:[{name,up,down}]`（面板本次运行累计入站字节）。pending 表示最新目标修订与 Agent 已应用的修订号、配置哈希或安装版本不一致；running 和 online 是独立状态。
+
+| 方法与路径 | 请求 / 响应 |
+|---|---|
+| `POST /api/servers/{id}/core/install` | 空体或 `{}`；202 `{queued:true,req_id}`，发送当前版本及对应架构 SHA256 |
+| `POST /api/servers/{id}/core/restart` | 空体或 `{}`；202 `{queued:true,req_id}` |
+| `POST /api/servers/{id}/core/apply` | 空体或 `{}`；200 `{revision,core}`，立即渲染并尝试重发；离线只保存目标 |
+| `GET /api/servers/{id}/core/logs?lines=200` | lines=1–1000；200 `{kind:"error",text}`，最多 64 KiB；等待最多 10 s |
+| `GET /api/servers/{id}/core/revisions` | 200 `{revisions:[{server_id,revision,sha256,created_at,created_by,version,ports,applied}]}`，最新在前，最多 20 条 |
+| `GET /api/servers/{id}/core/revisions/{rev}` | 200 `{revision}`，另含完整 `config_json` 对象（含配置凭据，仅管理员可取） |
+| `POST /api/servers/{id}/core/rollback/{rev}` | 空体或 `{}`；200 `{revision}`，创建新修订后尝试下发，响应省略 config_json |
+
+apply 响应也省略 revision.config_json。安装/重启的 queued 只表示进入发送队列，执行结果通过 core.state 更新。参数/预检错误 400，未登录 401，对象/修订不存在 404；Agent 离线、并发核心操作、未选择当前版本或缺少托管资产 409；日志等待超时 504。无对齐器的测试/简化装配返回 503。GET revisions 不要求 Agent 在线。
+
+变更后默认等待 5 s 合并同节点请求。渲染使用启用入站、已分配且 enabled=true/auto_disabled=none 的用户、节点证书和高级 JSON。SS2022 无用户时使用 managed=true 的空多用户 ACL；不能退回仅共享 PSK 的模式。统计地址固定 127.0.0.1:10085，入站占用 10085/tcp 时拒绝渲染。系统日志由 Agent 的 systemd unit 保存。
+
+输出缩进 JSON，哈希计算前用 json.Compact；相同哈希与版本复用最新修订，当前核心版本改变则创建新修订。预检使用该版本的不可变托管文件，10 s 超时，临时配置 0600，诊断 stderr 不回传。Windows 不能运行 Linux 二进制，记 WARN 后交由 Agent 必须执行的 check；托管版本缺失仍报错。预检在写事务之外，提交前复核输入，旧快照不能覆盖其间提交的修改。
+
+同节点只保留一个正在等待确认的 apply/install/restart。core.state 的 req_id 必须与当前请求匹配才可清除它，旧响应和普通周期状态不会替别的请求确认。首次 hello 等待紧随的新状态再对齐，周期性 hello 只刷新主机信息。版本不一致时等待管理员显式 install；不自动升级。apply 失败或 60 s 无响应产生 core.apply_failed 事件，并按 10/30/60 s 最多重试三次；新配置、手动 apply 或重连可重新尝试。当前目标已被实际状态确认后 pending=false。
+
+回滚保存选中修订的配置、哈希和版本，以更高修订号下发，created_by=`rollback:{rev}`。它不回写入站/用户数据；后续配置数据变更或手动 apply 会再次按数据库渲染。启动与每分钟复核保留未改变源数据的回滚结果；恢复的面板数据库落后于 Agent 时，新修订号高于 Agent 已应用值。每次插入事务精确保留最近 20 条。
+
+浏览器快照 `servers[].core={installed,running,version,users,pending,error}`；users 为最新目标配置中去重后的有效用户数。无核心服务装配时为 null。秒级广播使用缓存摘要，不逐节点查询数据库。
+
+core.stats 不信任 Agent 时间，按面板接收日期归入 daily；用户只能来自该节点当前分配或仍在已应用修订中的 sub-ID。负数、超大计数、重复项拒绝，无法识别/其它节点用户忽略。每 60 s 事务写 subscriber_traffic/daily 并重算当前账期 traffic_used=up+down；累计值上限为 JS 安全整数 9007199254740991，避免整数溢出。并发新样本与失败批次合并重试，正常退出冲刷已接收样本；无持久消息队列或统计 ACK，强杀/断链仍有丢失或重复边界。
+
+迁移 0006 为修订增加 version/ports，为 node_core 增加内部 input_sha256，为 subscribers 增加内部 usage_epoch。入桶记录当时账期和 epoch；reset-usage 在清表时递增 epoch，清零前的缓存不会在下次刷新时恢复用量。日期使用接收时的面板日期；更换账期前已捕获而未刷新的旧账期样本不计入新账期。
+
+新增审计 `core.revision`、`core.apply`、`core.install`、`core.restart`、`core.rollback`，仅记录修订号/哈希/版本/请求 ID 等元数据；配置私钥和日志内容不写入审计。通知总线增加 `core.apply_failed`，后续步骤 19 可订阅。
