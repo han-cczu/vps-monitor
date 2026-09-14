@@ -48,7 +48,8 @@ RUN go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/serve
       -o /out/agent/vps-agent-linux-amd64 ./agent/cmd/agent \
  && GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
       -o /out/agent/vps-agent-linux-arm64 ./agent/cmd/agent \
- && cp agent/install.sh agent/uninstall.sh /out/agent/
+ && cp agent/install.sh agent/uninstall.sh /out/agent/ \
+ && echo "${VERSION}" > /out/agent/VERSION
 
 # ----------------------------------------------------------------------
 # 3. 运行

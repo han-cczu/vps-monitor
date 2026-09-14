@@ -49,6 +49,7 @@ type HostInfo struct {
 
 // Hello 是 agent 连上后的第一条消息。
 type Hello struct {
+	Capabilities    []string `json:"capabilities,omitempty"`
 	Type            string   `json:"type"`
 	ProtoVersion    int      `json:"proto_version"`
 	Version         string   `json:"version"`          // agent 版本

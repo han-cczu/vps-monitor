@@ -22,6 +22,7 @@ import (
 	"vpsmon/agent/internal/config"
 	"vpsmon/agent/internal/corectl"
 	"vpsmon/agent/internal/ping"
+	"vpsmon/agent/internal/selfupdate"
 	"vpsmon/agent/internal/transport"
 	"vpsmon/proto"
 )
@@ -113,12 +114,17 @@ func run(configPath string, once bool) error {
 		return err
 	}
 
+	updater, err := selfupdate.New(cfg.Server, version, func(v any) error { return client.Send(v) })
+	if err != nil {
+		return err
+	}
 	client = transport.New(transport.Options{
 		Server:  cfg.Server,
 		Token:   cfg.Token,
 		Version: version,
 		Hello: func() proto.Hello {
 			return proto.Hello{
+				Capabilities:    []string{proto.TypeAgentUpdate},
 				Type:            proto.TypeHello,
 				ProtoVersion:    proto.Version,
 				Version:         version,
@@ -127,6 +133,13 @@ func run(configPath string, once bool) error {
 			}
 		},
 		OnMessage: func(msgType string, raw []byte) {
+			if msgType == proto.TypeAgentUpdate {
+				if err := updater.Handle(raw); err != nil {
+					slog.Warn("agent update rejected", "err", err)
+					_ = client.Send(proto.Error{Type: proto.TypeError, Op: proto.TypeAgentUpdate, Message: err.Error()})
+				}
+				return
+			}
 			handleMessage(msgType, raw, &reportInterval, pinger, core, client)
 		},
 		OnConnect: core.RequestState,
@@ -141,6 +154,7 @@ func run(configPath string, once bool) error {
 
 	var workers sync.WaitGroup
 	workers.Go(func() { core.Run(ctx) })
+	workers.Go(func() { updater.Run(ctx) })
 	<-core.Ready() // Recover interrupted config replacement before the first hello.
 	workers.Go(func() { client.Run(ctx) })
 	sampleLoop(ctx, sampler, client, &reportInterval)
