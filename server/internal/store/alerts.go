@@ -41,6 +41,16 @@ type AlertDelivery struct {
 	Attempts           int
 }
 
+// AlertDeliveryClaim is a persisted send attempt, with the channel and event
+// read in the same transaction that acquired it. Attempts is the claim version.
+type AlertDeliveryClaim struct {
+	Delivery AlertDelivery
+	Channel  NotifyChannel
+	Event    AlertEvent
+}
+
+const AlertDeliveryLeaseSeconds int64 = 30
+
 const alertEventColumns = `id,rule_kind,target_type,COALESCE(target_id,0),level,title,message,fired_at,resolved_at,notified_at,dedupe_key`
 
 func scanAlert(row scanner) (*AlertEvent, error) {
@@ -285,6 +295,50 @@ func (db *DB) DueAlertDeliveries(ctx context.Context, now int64) ([]AlertDeliver
 	}
 	return out, rows.Err()
 }
+
+// ClaimAlertDelivery atomically revalidates an advisory DueAlertDeliveries
+// candidate and starts its attempt. A nil claim means another worker or control
+// action already invalidated the candidate. This transaction must commit before
+// any network IO. A crashed worker's attempt becomes retryable after the lease;
+// consuming the attempt here also bounds retries when workers repeatedly crash.
+func (db *DB) ClaimAlertDelivery(ctx context.Context, d AlertDelivery, now int64) (*AlertDeliveryClaim, error) {
+	var claim *AlertDeliveryClaim
+	err := db.WithTx(ctx, func(tx *sql.Tx) error {
+		// Write first: no read-to-write transaction upgrade can race a competing
+		// claim or a channel disable / ResolveAlert transaction.
+		result, err := tx.ExecContext(ctx, `UPDATE alert_deliveries SET attempts=attempts+1,next_at=?
+			WHERE event_id=? AND channel_id=? AND recovery=? AND attempts=? AND attempts<3
+			AND sent_at IS NULL AND next_at<=?
+			AND EXISTS(SELECT 1 FROM notify_channels WHERE id=alert_deliveries.channel_id AND enabled=1)`,
+			now+AlertDeliveryLeaseSeconds, d.EventID, d.ChannelID, d.Recovery, d.Attempts, now)
+		if err != nil {
+			return err
+		}
+		if n, err := result.RowsAffected(); err != nil || n == 0 {
+			return err
+		}
+		channel, err := scanChannel(tx.QueryRowContext(ctx, `SELECT id,name,kind,config,enabled,created_at FROM notify_channels WHERE id=?`, d.ChannelID))
+		if err != nil {
+			return err
+		}
+		// One-shot reminders are resolved at creation and still need delivery;
+		// cancellation is represented by ResolveAlert deleting the outbox row.
+		event, err := scanAlert(tx.QueryRowContext(ctx, `SELECT `+alertEventColumns+` FROM alert_events WHERE id=?`, d.EventID))
+		if err != nil {
+			return err
+		}
+		d.Attempts++
+		claim = &AlertDeliveryClaim{Delivery: d, Channel: *channel, Event: *event}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return claim, nil
+}
+
+// FinishAlertDelivery accepts only the version returned by ClaimAlertDelivery.
+// A canceled row or an expired attempt replaced by a new claim is left alone.
 func (db *DB) FinishAlertDelivery(ctx context.Context, d AlertDelivery, now int64, sendErr error) error {
 	return db.WithTx(ctx, func(tx *sql.Tx) error {
 		var sent any
@@ -294,7 +348,7 @@ func (db *DB) FinishAlertDelivery(ctx context.Context, d AlertDelivery, now int6
 		} else {
 			message = sendErr.Error()
 		}
-		result, err := tx.ExecContext(ctx, `UPDATE alert_deliveries SET attempts=attempts+1,sent_at=?,next_at=?,last_error=? WHERE event_id=? AND channel_id=? AND recovery=? AND attempts=? AND sent_at IS NULL`, sent, now+30, message, d.EventID, d.ChannelID, d.Recovery, d.Attempts)
+		result, err := tx.ExecContext(ctx, `UPDATE alert_deliveries SET sent_at=?,next_at=?,last_error=? WHERE event_id=? AND channel_id=? AND recovery=? AND attempts=? AND attempts>0 AND sent_at IS NULL`, sent, now+30, message, d.EventID, d.ChannelID, d.Recovery, d.Attempts)
 		if err != nil {
 			return err
 		}
