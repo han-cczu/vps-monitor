@@ -4,7 +4,7 @@
 
 ## 1. 本地开发
 
-前置：Go 1.26、Node 24、npm 11。
+前置：Go 1.26.8 或同维护线更新安全补丁、Node 24、npm 11。
 
 ```sh
 # 一次性：装前端依赖
@@ -96,7 +96,7 @@ curl -fsSL https://panel.example.com/install.sh | bash -s -- --server wss://pane
 本地开发不配也行：会拼成 `http://localhost:9000`，`--server` 相应是 `ws://`。
 
 `/install.sh` 与 `/agent/{file}` 从 `{VM_DATA_DIR}/agent/` 下发，**不需要登录**（agent 装机时还没有任何凭据），
-只认四个文件名：`install.sh`、`uninstall.sh`、`vps-agent-linux-amd64`、`vps-agent-linux-arm64`。
+只认安装/卸载脚本、`vps-agent-linux-amd64`、`vps-agent-linux-arm64`，以及这两个二进制对应的 `.sha256` 摘要路径。摘要由面板对实际文件计算，不对任意文件提供哈希接口。
 其余名字（含任何目录穿越写法）一律 404，所以往这个目录里放别的东西不会被下载到。
 
 脚本与二进制本身是步骤 04 的产出；步骤 07 的镜像会把 CI 产物放进去。在那之前本地这样放：
@@ -588,3 +588,73 @@ PUT /api/inbounds/1
 总览人数是含停用用户的分配人数；入站流量是面板本次运行累计，重启清零，不代表账期流量。前端显示“等待节点应用”表示数据库已保存，实际生效需查看核心状态。60 s 未确认时检查 Agent 连接、版本和错误后再操作。
 
 本步本地验收与 fixture 边界见 [verify/proxy-ui.md](verify/proxy-ui.md)。
+
+
+## 安全与长期运维（步骤 20）
+
+### TOTP 启用、登录和找回
+
+1. 打开“设置 → 安全”，输入当前密码，点击“绑定验证器”。二维码与手动密钥只出现在此次绑定响应，十分钟内输入验证器的六位码完成启用。未完成验证不会打开二步登录。
+2. 启用后先输入用户名/密码，再输入验证码。密码验证成功只获得五分钟 ticket，不是面板 JWT；每个 ticket 提交一次即失效。失败需返回密码步骤重新登录。账户/IP 连续失败达到五次锁定十五分钟；重新提交正确密码不重置 MFA 失败计数。
+3. 同一时间步不重复接受，同样六位数字九十秒内不可复用。启用时刚用的码也不能马上用于登录或禁用，等验证器变化后再操作。请保持面板和手机自动校时。
+4. 绑定过程记录当时的密码状态；密码重置后旧绑定流程失效。登录或开关 TOTP 的最终数据库写入会再次核对密码哈希、密钥和启用状态，避免并发重置后继续使用旧凭据。
+5. 丢失验证器时，在服务器上执行下面的子命令。它只禁用该管理员的 TOTP，并写系统审计，不改密码、不打印 TOTP 密钥。
+
+```sh
+# 在部署目录执行；容器里已有 server ENTRYPOINT。
+docker compose exec server /app/server reset-totp admin
+# 非容器部署，使用正在运行服务相同的 VM_DATA_DIR：
+server reset-totp admin
+```
+
+初始密码/忘记密码仍使用既有 `reset-password admin`。TOTP 密钥以 AES-GCM 存储，使用 `VM_JWT_SECRET` 或数据卷 `jwt.secret` 派生加密密钥；**更换 JWT 主密钥前先禁用 TOTP，备份必须包含原密钥**。丢失主密钥时仅恢复数据库不能解密 TOTP，需执行 `reset-totp` 后重新绑定。普通密码修改不会旋转 JWT 主密钥。
+
+### 面板、Agent、sing-box 三条升级路径
+
+- 面板：先执行既有备份流程，保留数据库、JWT 密钥和核心文件目录，再拉取经过验证的新镜像并重建服务。迁移 0011 只新增使用码表和索引，自动迁移；回退旧版本按备份恢复流程处理，不在业务库执行破坏性 Down。镜像构建工具链固定 Go 1.26.8，CI 执行漏洞扫描。
+- Agent：节点表显示已上报版本和“可更新”，可以逐台或批量更新。只有在线、声明 `agent.update` 能力、架构受支持且稳定版本低于面板发布版的节点进入更新；旧 Agent 第一次需重新执行安装命令以获得更新能力。`dev`、未知或预发布版本没有自动排序，手动安装。初次安装与自动更新均校验 SHA-256；升级前后检查节点上报版本。
+- sing-box：在“设置 → 代理核心”准备目标版本的双架构托管产物；再到节点代理详情发起安装/升级，观察 installed/desired/applied、running、pending 与最后错误。此流程沿用 sing-box 下载摘要校验和配置事务回滚，不由 Agent 自更新代替。
+
+Agent 自动更新只从其已配置面板的同源 `/agent/` 路径下载，公网连接要求 WSS，回环开发可用 WS。禁止重定向；下载最长六十秒、最多64MiB；哈希正确后才赋执行权限，再用五秒超时运行 `--version` 并要求与目标版本逐字一致。任何预检失败都保留旧文件。替换前保存 `/usr/local/bin/vps-agent.bak`，Linux `exec` 保留 systemd 主 PID；`exec` 失败立即恢复旧文件。更新 API 的202仅表示下发排队，成功以重新上报目标版本为准。
+
+`--version` 能执行不能证明后续运行绝不崩溃。新程序进入运行后持续崩溃时，用保留的旧文件恢复；以下路径是默认安装位置，先确认备份存在并验证来源：
+
+```sh
+sudo /usr/local/bin/vps-agent.bak --version
+sudo systemctl stop vps-agent
+sudo cp -- /usr/local/bin/vps-agent.bak /usr/local/bin/vps-agent.restore
+sudo chmod 755 /usr/local/bin/vps-agent.restore
+sudo mv -f -- /usr/local/bin/vps-agent.restore /usr/local/bin/vps-agent
+sudo systemctl start vps-agent
+sudo systemctl --no-pager status vps-agent
+```
+
+断电/文件系统故障以及新程序进入运行后崩溃不承诺自动恢复；保留备份和上述恢复路径。正常卸载清除 Agent 主文件与 `.bak`；只有 `--purge-core` 才删除 sing-box 及对应日志轮转配置。
+
+### 设置、生效时间和审计
+
+“设置 → 站点”配置站点标题、IANA业务时区、1000/1024显示单位、四类保留期、告警冷却、订阅统计口径。保存是白名单局部更新，不覆盖订阅模板或其他后台配置；设置与审计在同一事务中提交，失败整体回滚。
+
+- 标题显示在面板顶栏。单位通过共用 `formatBytes`/`formatRate` 消费；1024显示 KiB/MiB/GiB，改变的是显示，不改账本原始字节。
+- 业务时区保存后更新业务时钟，启动时数据库 `site.tz` 覆盖 `VM_TZ`。下次滚动/到期判断使用新时区；前端剩余天数按面板当日，订阅日期可用 `formatPanelDate(Unix秒)`。
+- `enforce.count_mode=sum/download` 在后续采样生效，已累计历史不重算；告警冷却0–10080分钟，0关闭冷却，默认30。
+- metrics分钟/小时默认7/365天，Ping默认30天，由既有周期清理消费；审计默认365天，启动及之后每日清理。允许1–3650天，缩短保留期会在下一次清理时删除超期历史，操作前按需备份。
+- “设置 → 审计”按操作者、动作、目标类型、时间分页查询，点击查看修改前后 JSON。秘密、密码、TOTP密钥不会随新安全操作写入审计；订阅模板只记发生修改，不记录原文。查不到某条记录先检查时间筛选（输入为浏览器本机时间）与保留期。
+
+### 日志与SQLite维护
+
+安装sing-box时写 `/etc/logrotate.d/sing-box`：每日轮转、保留7份、压缩、copytruncate；默认日志 `/var/log/sing-box/box.log`。系统没有logrotate时，Agent启动及每24小时检查一次，大于50MiB才截断普通日志文件。每天检查不等同于50MiB硬上限；高吞吐日志应安装并启用logrotate。
+
+面板启动和每日执行 `PRAGMA wal_checkpoint(TRUNCATE)`，每周执行 `PRAGMA optimize`；维护最多运行30秒。若长事务导致checkpoint返回busy，记录警告并在下一小时重试，不声称WAL有绝对硬上限。检查长期占用读事务、磁盘剩余空间和备份任务，避免直接删除运行中的 `vm.db-wal`/`vm.db-shm`。
+
+Caddy访问日志设置50MiB/5份，对查询token和Referer过滤并跳过订阅请求；默认/error logger还需全局过滤，避免反代502记录原始订阅路径。主线已在真实本地Caddy容器验证两类日志，发布后仍应复核，见 [安全检查表](security-checklist.md)。用无敏感fixture链接验证过滤，不把真实订阅token写入测试记录。
+
+### 节点迁移与常见故障补充
+
+- 换IP：修改面板节点 `public_host`，刷新订阅；若更换整台主机，保留该节点记录并使用其安装命令重新装Agent。需要撤销旧主机时重置节点token，确保旧连接失效。代理凭据与订阅token分别管理，不靠换IP自动撤销凭据。
+- Agent离线：先看systemd状态、`journalctl -u vps-agent`、配置的面板域名和WSS路径、DNS/TLS及节点token；禁止把节点token当JWT登录面板。
+- 配置下发失败：检查核心最后错误、端口占用、desired/applied修订；预检失败保留旧配置。修复冲突后重新下发；回滚操作创建新修订。
+- 订阅为空：检查订阅用户是否手动禁用/流量达限/到期、是否分配到有效入站、节点`public_host`和证书；token旋转后刷新客户端订阅地址。
+- QUIC不可用：分别检查Hy2/TUIC的UDP入站、防火墙/安全组和客户端网络是否允许UDP；确认客户端证书pin与面板当前证书一致，不以关闭证书验证代替排障。
+
+验收命令、已观察结果和尚未完成的公网/ARM64验证见 [verify/security-ops.md](verify/security-ops.md)。

@@ -556,3 +556,67 @@ core.stats 不信任 Agent 时间，按面板接收日期归入 daily；用户�
 - 表单保存只发送可写 settings，省略 private_key/public_key/server_psk/obfs_password；首次 VLESS 留空 Short IDs 时省略该字段以自动生成，编辑态至少一项。密钥重生使用专用接口。
 - 手动 apply 以响应中的 revision/sha256/version 为目标，观察在线、运行、pending=false 且三字段匹配后结束等待；UI 最多等待 60 s，不代替服务端的 req_id 确认机制。
 - 日志显示/复制移除 ANSI 颜色序列，关闭抽屉取消 HTTP 等待；不会把主动取消显示为网络故障。所有密码与完整修订仅在既有管理员接口范围内读取。
+
+
+## 安全、设置与Agent更新（步骤20）
+
+### MFA/TOTP
+
+除已有公开认证入口外，新增公开 `POST /api/auth/mfa`；所有 `/api/auth/totp*` 路由要求管理员JWT。敏感认证响应设置 `Cache-Control: no-store`。
+
+| 方法/路径 | 输入 | 成功响应 |
+|---|---|---|
+| POST /api/auth/sign-in | 既有username/password | 未启用TOTP维持既有响应；已启用时 `{mfaRequired:true,ticket}`，不含accessToken |
+| POST /api/auth/mfa | `{ticket,code}` | 既有 `{accessToken,expiresAt,user}` |
+| GET /api/auth/totp | 无 | `{enabled:boolean}` |
+| POST /api/auth/totp/setup | `{password}` 当前密码 | `{secret,url}`；url为otpauth URI，十分钟待绑定状态 |
+| POST /api/auth/totp/enable | `{code}` | 204 |
+| POST /api/auth/totp/disable | `{code}` | 204 |
+
+TOTP为RFC6238、SHA1、六位、30秒周期，允许前后一个时间步。密钥20随机字节，AES-GCM密文格式`v1:base64(nonce+ciphertext+tag)`，HMAC-SHA256从JWT主密钥以独立用途字符串派生AES密钥，AAD绑定用户ID。迁移0011的`totp_used`持久保存已用时间步及90秒重复数字检测；登录ticket内存保存五分钟、一次提交即消耗，每用户最多一个当前ticket，总上限1024。密码修改后ticket/pending失效；最终数据库CAS校验读取时的密码哈希、密钥、启用状态。开关TOTP、消耗使用码和审计同事务，失败回滚。
+
+限速：MFA按IP及用户独立计失败，五次失败锁十五分钟，密码正确不清MFA计数；管理接口按用户计失败。401表示无效/过期ticket或验证码，429带Retry-After；认证服务数据库故障返回500。开关TOTP非法码400，并发状态变化/重放409。进程重启会丢失ticket和限速内存，不清已用验证码；过期使用码记录保留一天后清理。
+
+### 通用站点设置与审计
+
+`GET /api/settings`返回平铺JSON对象。`PUT /api/settings`接收一个非空局部对象，只更新传入白名单键；未知键、null、非法范围拒绝整个请求，不删未传键。设置和`settings.update`审计在同一事务提交；同一router串行执行保存及提交后通知。
+
+| 键 | 类型/范围 | 默认 |
+|---|---|---|
+| site.title | 1–80字字符串 | VPS Monitor |
+| site.tz | 有效IANA时区，不接受Local | VM_TZ/当前业务时钟 |
+| site.bytes_base | 1000或1024 | 1000 |
+| retention.metrics_minute_days | 整数1–3650 | 7 |
+| retention.metrics_hour_days | 整数1–3650 | 365 |
+| retention.ping_days | 整数1–3650 | 30 |
+| retention.audit_days | 整数1–3650 | 365 |
+| alert.cooldown_minutes | 整数0–10080 | 30 |
+| enforce.count_mode | sum或download | sum |
+| sub.clash_template | 最大256KiB字符串，须通过订阅模块验证器 | 由订阅模块提供默认模板 |
+
+组合合同：`Deps.SettingsDefaults`补默认值，`ValidateSetting(key,json.RawMessage) error`执行额外校验，`SettingsChanged([]string)`仅在提交后通知缓存消费者。订阅模板未装配验证器时拒绝写入；批量事务不逐项调用SetSetting，订阅缓存失效应由提交后hook负责。审计只记录变更键，首次设置before为null（默认值原本生效），模板原文脱敏。
+
+`GET /api/audit?page=1&size=25&actor=&action=&target_type=&from=&to=` 返回 `{items,total,page,size}`；items字段为`id,ts,actor,action,target_type,target_id,before,after,ip`。before/after是JSON字符串；actor/action/target_type精确匹配；时间支持Unix秒或RFC3339，范围两端包含，size为1–100。默认按id倒序，空列表为`[]`。仅管理员可读。
+
+### Agent更新协议
+
+新版hello新增可选 `capabilities:["agent.update"]`；未声明的旧Agent不进入自动更新。仍为协议版本1，不改变旧字段；只在匹配协议版本且支持列表合理时接受能力声明。
+
+```json
+{"type":"agent.update","version":"v0.1.1","file":"vps-agent-linux-amd64","sha256":"64位小写十六进制摘要"}
+```
+
+- version仅接受可比较稳定版本`v?major.minor.patch`且严格高于当前；dev/未知/预发布/降级拒绝。file仅允许与本机amd64/arm64匹配的固定Linux文件名。未知字段、尾随JSON、消息超过2048字节拒绝；同一Agent一次只处理一个更新。
+- 使用已配置面板URL的同源`/agent/{file}`，拒绝重定向、外部地址注入、超时、空文件及超过64MiB；公网必须WSS。验证sha256后执行`--version`，五秒内返回目标字符串才替换当前可执行文件。
+- 旧binary复制为`.bak`，随后rename新binary，Linux exec接管原PID；exec错误恢复备份。进入新程序后的持续崩溃需按runbook恢复，不能用预检成功代替运行健康证明。
+- 失败回传既有`error`消息，`op:"agent.update"`。HTTP202仅表示已排队，实际成功以hello目标版本为准。
+
+| 方法/路径 | 说明 |
+|---|---|
+| GET /api/agent-version | 管理员读取 `{version,servers:[{id,version,online,supported,update_available}]}` |
+| POST /api/servers/{id}/agent/update | 只给在线、能力/版本/产物均满足条件的节点下发；不满足409 |
+| POST /api/servers/agent/update-all | 返回 `{queued:[id],skipped:[{id,reason}]}`，逐节点审计 |
+| GET /agent/vps-agent-linux-amd64.sha256 | 公开固定产物的sha256sum格式摘要 |
+| GET /agent/vps-agent-linux-arm64.sha256 | 同上，供初次安装校验；不支持任意文件摘要 |
+
+发布目录VERSION来自镜像`/app/agent-dist/VERSION`并同步到数据目录，只有稳定版本可用于自动更新。初始安装脚本也下载固定摘要并在执行新二进制前校验。新增审计动作：`auth.totp_enable/disable/reset`、`settings.update`、`agent.update_requested`，不记录验证码、密钥或模板内容。
