@@ -60,6 +60,8 @@ npm audit --json
 
 工作区实际选中 grpc 1.83.2、x/net 0.58.0、x/text 0.42.0、protobuf 1.36.12、x/crypto 0.57.0、goose 3.28.0。npm 锁文件 axios 1.20.0、react-router 7.18.3；生产与全部依赖扫描均 0 漏洞。仅更新锁文件，没有对共用 node_modules 执行 npm ci。
 
+合并后复查：从主线提交 `fef511005c8ba99d40d9333ef828961e826b2bbb` 导出独立源码快照，使用同一工具链/scanner 对三个模块的 34 个根包分别运行 Windows amd64 和 Linux amd64 扫描，两者退出码均为 0：0 可达、0 已导入包漏洞，仍仅有上述未使用 openpgp 的模块提示。该次包含步骤 15/17 新增订阅导入，没有修改主线工作区。原始输出保存在本次本地安全工作区 `dist/govulncheck-fef5110-windows.txt`、`dist/govulncheck-fef5110-linux.txt`，未提交忽略目录。
+
 ## 主线真实集成证据与未验边界
 
 - Linux amd64/systemd：主线 `dist/step15-20-qa/smoke.json` 记录实际 Agent v0.1.0→v0.1.1，目标摘要与 `.bak` 旧摘要匹配，PID 保持，重新连接和版本回报耗时 3.339 秒；这是同一代码改变版本号的测试构建，初轮使用旧 Go 1.26.2。正式补丁工具链的最终重建由主线另行记录，不能用此条声称已发布新镜像/远端 Release。
