@@ -9,7 +9,9 @@ import (
 	"time"
 	"unicode/utf8"
 	"vpsmon/server/internal/audit"
+	"vpsmon/server/internal/auth"
 	"vpsmon/server/internal/clock"
+	"vpsmon/server/internal/store"
 )
 
 var settingDefaults = map[string]any{
@@ -95,6 +97,8 @@ func (d *Deps) validateSetting(key string, raw json.RawMessage) error {
 	return nil
 }
 func (d *Deps) putSettings(w http.ResponseWriter, r *http.Request) {
+	d.settingsMu.Lock()
+	defer d.settingsMu.Unlock()
 	var values map[string]json.RawMessage
 	if !decodeJSON(w, r, &values) {
 		return
@@ -109,25 +113,15 @@ func (d *Deps) putSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	before, err := d.readSettings(r.Context())
-	if err != nil {
-		writeError(w, 500, "读取设置失败")
-		return
-	}
-	if err = d.DB.SetSettings(r.Context(), values); err != nil {
-		writeError(w, 500, "保存设置失败")
+	p, _ := auth.PrincipalFromContext(r.Context())
+	entry := store.AuditEntry{TS: time.Now().Unix(), Actor: p.Name, Action: "settings.update", TargetType: "settings", TargetID: "site", IP: audit.ClientIP(r)}
+	if err := d.DB.SetSettingsAudited(r.Context(), values, entry); err != nil {
+		writeError(w, 500, "保存设置及审计失败")
 		return
 	}
 	keys := make([]string, 0, len(values))
-	old, after := map[string]any{}, map[string]any{}
-	for key, raw := range values {
+	for key := range values {
 		keys = append(keys, key)
-		old[key] = before[key]
-		after[key] = raw
-		if key == "sub.clash_template" {
-			old[key] = "[template]"
-			after[key] = "[template updated]"
-		}
 	}
 	if raw, ok := values["site.tz"]; ok {
 		var tz string
@@ -138,6 +132,5 @@ func (d *Deps) putSettings(w http.ResponseWriter, r *http.Request) {
 	if d.SettingsChanged != nil {
 		d.SettingsChanged(keys)
 	}
-	audit.Record(r.Context(), d.DB, "settings.update", "settings", "site", old, after)
 	d.getSettings(w, r)
 }
