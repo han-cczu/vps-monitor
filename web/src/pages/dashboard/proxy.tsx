@@ -1,6 +1,6 @@
 import { CONFIG } from 'src/global-config';
 
-import { BlankView } from 'src/sections/blank/view';
+import { ProxyListView } from 'src/sections/proxy/list/proxy-list-view';
 
 // ----------------------------------------------------------------------
 
@@ -11,7 +11,7 @@ export default function Page() {
     <>
       <title>{metadata.title}</title>
 
-      <BlankView title="代理" description="步骤 13/14 实现：入站、证书、核心状态与下发。" />
+      <ProxyListView />
     </>
   );
 }

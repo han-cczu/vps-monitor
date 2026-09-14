@@ -545,3 +545,14 @@ core.stats 不信任 Agent 时间，按面板接收日期归入 daily；用户�
 迁移 0006 为修订增加 version/ports，为 node_core 增加内部 input_sha256，为 subscribers 增加内部 usage_epoch。入桶记录当时账期和 epoch；reset-usage 在清表时递增 epoch，清零前的缓存不会在下次刷新时恢复用量。日期使用接收时的面板日期；更换账期前已捕获而未刷新的旧账期样本不计入新账期。
 
 新增审计 `core.revision`、`core.apply`、`core.install`、`core.restart`、`core.rollback`，仅记录修订号/哈希/版本/请求 ID 等元数据；配置私钥和日志内容不写入审计。通知总线增加 `core.apply_failed`，后续步骤 19 可订阅。
+
+## 10. 节点代理页的数据使用（步骤 14）
+
+本步不新增 HTTP 接口。页面路由 `/dashboard/proxy` 与 `/dashboard/proxy/:serverId`，统一使用现有管理员 JWT API。
+
+- 详情 core 每 5 s 刷新；快照 core/online 业务字段变化触发额外刷新。入站、证书、分配、打开的修订列表同样轮询；高级 JSON 只读状态。
+- “分配用户”来自 `GET /api/subscribers` 的 `assigned_inbounds`，包含停用用户且节点内去重；与快照 `core.users`（目标配置中的有效用户）不同。
+- `core.inbounds` 是面板本次运行的内存累计，重启后清零；UI 不把它标为账期用量。`core.listening` 是节点 /proc 中观察到的监听项，包含其它进程和回环端口，不能据此全部放行云安全组。
+- 表单保存只发送可写 settings，省略 private_key/public_key/server_psk/obfs_password；首次 VLESS 留空 Short IDs 时省略该字段以自动生成，编辑态至少一项。密钥重生使用专用接口。
+- 手动 apply 以响应中的 revision/sha256/version 为目标，观察在线、运行、pending=false 且三字段匹配后结束等待；UI 最多等待 60 s，不代替服务端的 req_id 确认机制。
+- 日志显示/复制移除 ANSI 颜色序列，关闭抽屉取消 HTTP 等待；不会把主动取消显示为网络故障。所有密码与完整修订仅在既有管理员接口范围内读取。

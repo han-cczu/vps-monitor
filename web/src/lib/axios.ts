@@ -41,6 +41,8 @@ axiosInstance.interceptors.request.use((config) => {
 axiosInstance.interceptors.response.use(
   (response) => response,
   (error) => {
+    // 日志抽屉关闭/切换行数会主动取消请求，不属于网络故障。
+    if (axios.isCancel(error)) return Promise.reject(error);
     const status: number | undefined = error?.response?.status;
 
     if (status === 401) {

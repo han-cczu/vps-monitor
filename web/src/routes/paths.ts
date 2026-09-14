@@ -23,11 +23,11 @@ export const paths = {
       new: `${ROOTS.DASHBOARD}/servers/new`,
       details: (id: string | number) => `${ROOTS.DASHBOARD}/servers/${id}`,
       edit: (id: string | number) => `${ROOTS.DASHBOARD}/servers/${id}/edit`,
-      proxy: (id: string | number) => `${ROOTS.DASHBOARD}/servers/${id}/proxy`,
     },
     /** 代理 */
     proxy: {
       root: `${ROOTS.DASHBOARD}/proxy`,
+      detail: (id: string | number) => `${ROOTS.DASHBOARD}/proxy/${id}`,
     },
     /** 订阅用户 */
     subscribers: {

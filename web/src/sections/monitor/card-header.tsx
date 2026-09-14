@@ -2,7 +2,10 @@ import { useState, useEffect } from 'react';
 
 import Box from '@mui/material/Box';
 import Link from '@mui/material/Link';
+import Menu from '@mui/material/Menu';
 import Tooltip from '@mui/material/Tooltip';
+import MenuItem from '@mui/material/MenuItem';
+import IconButton from '@mui/material/IconButton';
 import Typography from '@mui/material/Typography';
 
 import { paths } from 'src/routes/paths';
@@ -13,6 +16,7 @@ import { formatDuration } from 'src/utils/format';
 import { REGION_LABELS } from 'src/constants/server';
 
 import { Label } from 'src/components/label';
+import { Iconify } from 'src/components/iconify';
 import { FlagIcon } from 'src/components/flag-icon';
 
 // ----------------------------------------------------------------------
@@ -32,6 +36,7 @@ type Props = {
 /** 卡片顶部：国旗 + 名称 + 地区分组 + 协议栈标记；离线时右上角显示离线时长。 */
 export function CardHeader({ id, name, region, group, v4, v6, online, lastSeen }: Props) {
   const subtitle = [formatRegion(region), group].filter(Boolean).join(' · ');
+  const [menu, setMenu] = useState<HTMLElement | null>(null);
 
   return (
     <Box sx={{ gap: 1, display: 'flex', alignItems: 'flex-start' }}>
@@ -83,6 +88,22 @@ export function CardHeader({ id, name, region, group, v4, v6, online, lastSeen }
       </Box>
 
       <OfflineTag online={online} lastSeen={lastSeen} />
+      <IconButton
+        size="small"
+        aria-label={`${name} 更多操作`}
+        onClick={(event) => setMenu(event.currentTarget)}
+      >
+        <Iconify icon="eva:more-vertical-fill" />
+      </IconButton>
+      <Menu open={!!menu} anchorEl={menu} onClose={() => setMenu(null)}>
+        <MenuItem
+          component={RouterLink}
+          href={paths.dashboard.proxy.detail(id)}
+          onClick={() => setMenu(null)}
+        >
+          代理管理
+        </MenuItem>
+      </Menu>
     </Box>
   );
 }

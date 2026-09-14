@@ -20,6 +20,7 @@ const OverviewPage = lazy(() => import('src/pages/dashboard/overview'));
 const ServersPage = lazy(() => import('src/pages/dashboard/servers'));
 const ServerDetailPage = lazy(() => import('src/pages/dashboard/server-detail'));
 const ProxyPage = lazy(() => import('src/pages/dashboard/proxy'));
+const ProxyDetailPage = lazy(() => import('src/pages/dashboard/proxy-detail'));
 const SubscribersPage = lazy(() => import('src/pages/dashboard/subscribers'));
 const AlertsPage = lazy(() => import('src/pages/dashboard/alerts'));
 const PingTasksPage = lazy(() => import('src/pages/dashboard/settings/ping-tasks'));
@@ -61,7 +62,13 @@ export const dashboardRoutes: RouteObject[] = [
           { path: ':id', element: <ServerDetailPage /> },
         ],
       },
-      { path: 'proxy', element: <ProxyPage /> },
+      {
+        path: 'proxy',
+        children: [
+          { index: true, element: <ProxyPage /> },
+          { path: ':serverId', element: <ProxyDetailPage /> },
+        ],
+      },
       { path: 'subscribers', element: <SubscribersPage /> },
       { path: 'alerts', element: <AlertsPage /> },
       {
