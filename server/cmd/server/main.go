@@ -310,6 +310,10 @@ func run() error {
 		},
 	})
 	enforcer = proxy.NewEnforcer(db, reconciler, realtime.Bus.Publish)
+	if err := enforcer.Initialize(ctx); err != nil {
+		return fmt.Errorf("initialize subscriber periods: %w", err)
+	}
+	reconciler.Stats.BeforeIngest = enforcer.EnsurePeriods
 	proxyService := proxy.New(db, reconciler)
 	proxyService.Events = realtime.Bus.Publish
 	realtime.Agents.OnCore(reconciler.Handle, reconciler.OnAgentHello)

@@ -33,6 +33,9 @@ type Stats struct {
 	inbounds map[int64]map[string]proto.Counter
 	now      func() time.Time
 	closed   bool
+	// BeforeIngest is installed at startup. It advances a calendar boundary
+	// before this sample captures the persistent period and manual-reset epoch.
+	BeforeIngest func(context.Context, time.Time) error
 }
 
 func NewStats(db *store.DB) *Stats {
@@ -67,6 +70,12 @@ func (s *Stats) Ingest(ctx context.Context, id int64, m proto.CoreStats) error {
 	if err := validateCounters(m.Inbounds, 1024); err != nil {
 		return err
 	}
+	now := s.now()
+	if s.BeforeIngest != nil {
+		if err := s.BeforeIngest(ctx, now); err != nil {
+			return err
+		}
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -86,7 +95,7 @@ func (s *Stats) Ingest(ctx context.Context, id int64, m proto.CoreStats) error {
 		return err
 	}
 	allowed := map[int64]usageKey{}
-	day := s.now().Format(time.DateOnly)
+	day := now.Format(time.DateOnly)
 	for rows.Next() {
 		k := usageKey{node: id, date: day}
 		if err = rows.Scan(&k.user, &k.period, &k.epoch); err != nil {

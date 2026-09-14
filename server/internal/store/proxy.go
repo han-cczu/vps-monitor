@@ -30,6 +30,7 @@ type Subscriber struct {
 	TrafficUsed      int64        `json:"traffic_used"`
 	ResetDay         int          `json:"reset_day"`
 	PeriodStart      int64        `json:"period_start"`
+	PeriodDate       string       `json:"-"` // Stable local YYYY-MM-DD identity; not an instant in a mutable timezone.
 	ExpireAt         *string      `json:"expire_at"`
 	CreatedAt        int64        `json:"created_at"`
 	UpdatedAt        int64        `json:"updated_at"`
@@ -195,11 +196,11 @@ func (q ProxyQueries) Core(ctx context.Context, id int64) (*NodeCore, error) {
 	return c, nil
 }
 
-const subscriberFields = `id,name,note,enabled,auto_disabled,traffic_limit,traffic_used,reset_day,period_start,expire_at,created_at,updated_at,warn80_sent,kind`
+const subscriberFields = `id,name,note,enabled,auto_disabled,traffic_limit,traffic_used,reset_day,period_start,expire_at,created_at,updated_at,warn80_sent,kind,period_date`
 
 func scanSubscriber(row scanner, detail bool) (*Subscriber, error) {
 	s := &Subscriber{AssignedInbounds: []Assignment{}}
-	args := []any{&s.ID, &s.Name, &s.Note, &s.Enabled, &s.AutoDisabled, &s.TrafficLimit, &s.TrafficUsed, &s.ResetDay, &s.PeriodStart, &s.ExpireAt, &s.CreatedAt, &s.UpdatedAt, &s.Warn80Sent, &s.Kind}
+	args := []any{&s.ID, &s.Name, &s.Note, &s.Enabled, &s.AutoDisabled, &s.TrafficLimit, &s.TrafficUsed, &s.ResetDay, &s.PeriodStart, &s.ExpireAt, &s.CreatedAt, &s.UpdatedAt, &s.Warn80Sent, &s.Kind, &s.PeriodDate}
 	if detail {
 		args = append(args, &s.SubToken, &s.UUID, &s.Password, &s.SSUserKey)
 	}
@@ -274,10 +275,10 @@ func (q ProxyQueries) assignments(ctx context.Context, subscribers []*Subscriber
 	return rows.Err()
 }
 func (q ProxyQueries) SaveSubscriber(ctx context.Context, s *Subscriber) error {
-	args := []any{s.Name, s.Note, s.Enabled, s.AutoDisabled, s.SubToken, s.UUID, s.Password, s.SSUserKey, s.TrafficLimit, s.TrafficUsed, s.ResetDay, s.PeriodStart, s.ExpireAt, s.UpdatedAt, s.Warn80Sent}
+	args := []any{s.Name, s.Note, s.Enabled, s.AutoDisabled, s.SubToken, s.UUID, s.Password, s.SSUserKey, s.TrafficLimit, s.TrafficUsed, s.ResetDay, s.PeriodStart, s.ExpireAt, s.UpdatedAt, s.Warn80Sent, s.PeriodDate}
 	if s.ID == 0 {
 		args = append(args, s.CreatedAt)
-		res, err := q.DB.ExecContext(ctx, `INSERT INTO subscribers(name,note,enabled,auto_disabled,sub_token,uuid,password,ss_user_key,traffic_limit,traffic_used,reset_day,period_start,expire_at,updated_at,warn80_sent,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, args...)
+		res, err := q.DB.ExecContext(ctx, `INSERT INTO subscribers(name,note,enabled,auto_disabled,sub_token,uuid,password,ss_user_key,traffic_limit,traffic_used,reset_day,period_start,expire_at,updated_at,warn80_sent,period_date,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, args...)
 		if err != nil {
 			return err
 		}
@@ -285,7 +286,7 @@ func (q ProxyQueries) SaveSubscriber(ctx context.Context, s *Subscriber) error {
 		return err
 	}
 	args = append(args, s.ID)
-	_, err := q.DB.ExecContext(ctx, `UPDATE subscribers SET name=?,note=?,enabled=?,auto_disabled=?,sub_token=?,uuid=?,password=?,ss_user_key=?,traffic_limit=?,traffic_used=?,reset_day=?,period_start=?,expire_at=?,updated_at=?,warn80_sent=? WHERE id=?`, args...)
+	_, err := q.DB.ExecContext(ctx, `UPDATE subscribers SET name=?,note=?,enabled=?,auto_disabled=?,sub_token=?,uuid=?,password=?,ss_user_key=?,traffic_limit=?,traffic_used=?,reset_day=?,period_start=?,expire_at=?,updated_at=?,warn80_sent=?,period_date=? WHERE id=?`, args...)
 	return err
 }
 func (q ProxyQueries) DeleteSubscriber(ctx context.Context, id int64) error {

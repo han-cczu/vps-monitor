@@ -58,11 +58,12 @@ func policyEvents(ctx context.Context, q store.ProxyQueries, before, s *store.Su
 }
 
 type Enforcer struct {
-	db       *store.DB
-	notifier Notifier
-	publish  func(hub.Event)
-	now      func() time.Time
-	mu       sync.Mutex
+	db        *store.DB
+	notifier  Notifier
+	publish   func(hub.Event)
+	now       func() time.Time
+	mu        sync.Mutex
+	periodDay string // Last successfully checked local date; the stats hook stays read-only on the common path.
 }
 
 func NewEnforcer(db *store.DB, n Notifier, publish func(hub.Event)) *Enforcer {
@@ -72,13 +73,64 @@ func NewEnforcer(db *store.DB, n Notifier, publish func(hub.Event)) *Enforcer {
 	return &Enforcer{db: db, notifier: n, publish: publish, now: clock.Now}
 }
 
+// Initialize pins legacy timestamps to their original effective calendar before
+// HTTP starts accepting timezone changes. Never reinterpret an existing anchor.
+func (e *Enforcer) Initialize(ctx context.Context) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	loc := e.now().Location()
+	return e.db.WithProxyTx(ctx, func(q store.ProxyQueries) error {
+		rows, err := q.DB.QueryContext(ctx, `SELECT id,period_start FROM subscribers WHERE period_date=''`)
+		if err != nil {
+			return err
+		}
+		type legacy struct{ id, start int64 }
+		var legacyRows []legacy
+		for rows.Next() {
+			var row legacy
+			if err := rows.Scan(&row.id, &row.start); err != nil {
+				rows.Close()
+				return err
+			}
+			legacyRows = append(legacyRows, row)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		for _, row := range legacyRows {
+			if _, err := q.DB.ExecContext(ctx, `UPDATE subscribers SET period_date=? WHERE id=? AND period_date=''`, time.Unix(row.start, 0).In(loc).Format(time.DateOnly), row.id); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// EnsurePeriods runs before Stats captures period/epoch. Only the first sample
+// after a local date change pays for a full transaction; concurrent nodes share
+// the check. A failed transaction never advances the date cache.
+func (e *Enforcer) EnsurePeriods(ctx context.Context, now time.Time) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.periodDay == now.Format(time.DateOnly) {
+		return nil
+	}
+	return e.runOnce(ctx, now)
+}
+
 // RunOnce rolls periods forward and evaluates all users under a single writer
-// transaction. Per-user period_start makes startup catch-up and retries idempotent.
+// transaction. Per-user period_date makes startup catch-up and retries idempotent.
 // Invoke after Stats.Flush so the policy sees the latest committed usage.
 func (e *Enforcer) RunOnce(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	now := e.now()
+	return e.runOnce(ctx, now)
+}
+
+func (e *Enforcer) runOnce(ctx context.Context, now time.Time) error {
 	changedNodes := map[int64]bool{}
 	events := []hub.Event{}
 	changed := false
@@ -89,9 +141,13 @@ func (e *Enforcer) RunOnce(ctx context.Context) error {
 		}
 		for _, s := range users {
 			before := *s
+			if s.PeriodDate == "" {
+				s.PeriodDate = time.Unix(s.PeriodStart, 0).In(now.Location()).Format(time.DateOnly)
+			}
 			rolled := false
-			if reset, ok := enforce.LatestReset(s.ResetDay, now, now.Location()); ok && s.PeriodStart < reset.Unix() {
+			if reset, ok := enforce.LatestReset(s.ResetDay, now, now.Location()); ok && s.PeriodDate < reset.Format(time.DateOnly) {
 				s.PeriodStart = reset.Unix()
+				s.PeriodDate = reset.Format(time.DateOnly)
 				s.TrafficUsed = 0
 				s.Warn80Sent = false
 				rolled = true
@@ -109,8 +165,8 @@ func (e *Enforcer) RunOnce(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			if rolled || s.AutoDisabled != before.AutoDisabled || s.Warn80Sent != before.Warn80Sent {
-				if _, err = q.DB.ExecContext(ctx, `UPDATE subscribers SET period_start=?,traffic_used=?,auto_disabled=?,warn80_sent=?,updated_at=? WHERE id=?`, s.PeriodStart, s.TrafficUsed, s.AutoDisabled, s.Warn80Sent, now.Unix(), s.ID); err != nil {
+			if rolled || s.PeriodDate != before.PeriodDate || s.AutoDisabled != before.AutoDisabled || s.Warn80Sent != before.Warn80Sent {
+				if _, err = q.DB.ExecContext(ctx, `UPDATE subscribers SET period_start=?,period_date=?,traffic_used=?,auto_disabled=?,warn80_sent=?,updated_at=? WHERE id=?`, s.PeriodStart, s.PeriodDate, s.TrafficUsed, s.AutoDisabled, s.Warn80Sent, now.Unix(), s.ID); err != nil {
 					return err
 				}
 				changed = true
@@ -129,6 +185,7 @@ func (e *Enforcer) RunOnce(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	e.periodDay = now.Format(time.DateOnly)
 	if changed {
 		e.db.InvalidateSubscriptions()
 	}
