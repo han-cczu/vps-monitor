@@ -34,6 +34,9 @@ jobs:
       - name: agent concurrency checks
         run: go test -race ./agent/internal/corectl ./agent/internal/transport ./agent/internal/ping
 
+      - name: proxy concurrency checks
+        run: go test -race ./server/internal/proxy/... ./server/internal/store ./server/internal/api
+
       - name: go build (agent 交叉编译)
         run: |
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /dev/null ./agent/cmd/agent

@@ -23,6 +23,7 @@ import (
 	"vpsmon/server/internal/corefiles"
 	"vpsmon/server/internal/hub"
 	"vpsmon/server/internal/ping"
+	"vpsmon/server/internal/proxy"
 	"vpsmon/server/internal/store"
 )
 
@@ -49,6 +50,7 @@ type Deps struct {
 	Hub       *hub.Hub
 	Ping      *ping.Service
 	CoreFiles *corefiles.Store
+	Proxy     *proxy.Service
 	coreSlots chan struct{}
 
 	// verifySem 由 NewRouter 初始化，限制并发密码校验数。
@@ -60,6 +62,9 @@ func NewRouter(deps Deps) http.Handler {
 	d := &deps
 	d.verifySem = make(chan struct{}, maxConcurrentVerify)
 	d.coreSlots = make(chan struct{}, 2)
+	if d.Proxy == nil {
+		d.Proxy = proxy.New(d.DB, proxy.NoopNotifier{})
+	}
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -115,6 +120,7 @@ func NewRouter(deps Deps) http.Handler {
 			protected.Post("/corefiles/fetch", d.coreTransfer(d.fetchCoreFile))
 			protected.Put("/corefiles/current", d.setCurrentCore)
 			protected.Delete("/corefiles/{version}", d.deleteCoreVersion)
+			d.proxyRoutes(protected)
 		})
 
 		api.NotFound(func(w http.ResponseWriter, _ *http.Request) {

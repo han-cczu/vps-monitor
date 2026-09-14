@@ -445,3 +445,71 @@ Agent 接收端已实现；服务端渲染、下发和上报入库仍由步骤 1
 - core.stats 每 10 秒从回环地址调用 `/v2ray.core.app.stats.command.StatsService/QueryStats`，reset=true。up/down 是客户端上传/下载的字节增量；未知计数器或负数忽略。连接失败后等待 60 秒重试，错误通过 core.state 回传。
 - 离线不查询/reset；发送失败保留当前批次直到重发成功。没有应用层 ACK 或持久队列，进程退出或 reset 后网络中断仍有丢失/确认边界，不保证精确一次。
 - 配置应用先 check，再备份、替换、放行、restart、检查端口；失败恢复旧配置和修订。首次应用没有旧配置则 stop 并删除失败配置。未完成事务留在 `/var/lib/vps-agent/core-apply.json`，Agent 启动恢复后才发 hello。
+
+## 8. 代理数据与凭据（步骤 12）
+
+以下 20 个方法/路径组合均需要管理员 JWT，Agent Token 不可访问；响应使用 `Cache-Control: no-store`。本步只保存数据，变更提交后调用 NoopNotifier；渲染、下发、核心状态/流量入库由步骤 13 接通。
+
+| 方法与路径 | 请求 / 响应 |
+|---|---|
+| `GET /api/servers/{id}/inbounds` | `{inbounds: Inbound[]}`，含禁用项，按 ID 排序 |
+| `POST /api/servers/{id}/inbounds` | Inbound 可写字段；201 `{inbound}` |
+| `GET /api/inbounds/{id}` | `{inbound}` |
+| `PUT /api/inbounds/{id}` | 部分更新可写字段；`{inbound}` |
+| `DELETE /api/inbounds/{id}` | 204，级联删除分配 |
+| `POST /api/inbounds/{id}/regenerate-keys` | 空体或 `{}`；`{inbound}`；TUIC 返回 400 |
+| `GET /api/servers/{id}/cert` | `{cert}`，尚未生成时为 null；永不返回私钥 |
+| `POST /api/servers/{id}/cert/regenerate` | `{sni?}` 或空体；`{cert}` |
+| `GET /api/servers/{id}/advanced` | `{advanced:{server_id,extra_json,updated_at}}`，未设置时 extra_json 为 `{}`、updated_at 为 null |
+| `PUT /api/servers/{id}/advanced` | `{extra_json:{...}}` 全量替换；`{advanced}` |
+| `GET /api/servers/{id}/core` | `{core: NodeCore}`，本步返回初始数据库状态 |
+| `GET /api/subscribers` | `{subscribers: Subscriber[]}`，不含四项凭据，按 ID 排序 |
+| `POST /api/subscribers` | Subscriber 可写字段；201 `{subscriber}` |
+| `GET /api/subscribers/{id}` | `{subscriber}`，含四项凭据 |
+| `PUT /api/subscribers/{id}` | 部分更新可写字段；`{subscriber}` |
+| `DELETE /api/subscribers/{id}` | 204，级联删除分配和该用户流量记录 |
+| `PUT /api/subscribers/{id}/assignments` | `{inbound_ids:[1,2]}` 全量替换；`{subscriber}` |
+| `POST /api/subscribers/{id}/reset-token` | 空体或 `{}`；只旋转 sub_token，返回 `{subscriber}` |
+| `POST /api/subscribers/{id}/regenerate-credentials` | 空体或 `{}`；只旋转 uuid/password/ss_user_key，返回 `{subscriber}` |
+| `POST /api/subscribers/{id}/reset-usage` | 空体或 `{}`；清零当前用量，返回 `{subscriber}` |
+
+除创建和删除外，成功返回 200。错误格式为 `{message}`：字段/格式错误 400、未认证 401、对象不存在 404、端口冲突 409、内部错误 500。请求体最大 1 MiB，须为单个 JSON 对象；未知可写字段与尾随 JSON 拒绝。除 `expire_at` 外，可写顶层字段不能为 null。
+
+### Inbound
+
+可写字段为 `protocol`、`listen_port`、`settings`、`remark`、`enabled`。创建必须有 protocol 与 1–65535 的 listen_port，默认 enabled=true；PUT 省略字段保留旧值，settings 按字段合并，protocol 不可更改。响应另含 `id`、`server_id`、`tag`、`created_at`、`updated_at`，不可通过写接口提交这些字段。tag 按协议生成为 `vless/ss/hy2/tuic-{port}`；时间为 Unix 秒。
+
+| protocol | settings 字段与默认值 | 占用传输 |
+|---|---|---|
+| vless | handshake_server=`www.microsoft.com`、handshake_port=443；自动生成 private_key/public_key/short_ids | TCP |
+| shadowsocks | method 固定 `2022-blake3-aes-128-gcm`；自动生成 server_psk | TCP + UDP |
+| hysteria2 | obfs_enabled=false、自动生成 obfs_password；up_mbps/down_mbps=0、ignore_client_bandwidth=false | UDP |
+| tuic | congestion_control=`bbr`（另支持 cubic/new_reno）、zero_rtt=false | UDP |
+
+同节点同端口的传输不能重叠，禁用仍保留端口。例如 vless:443 与 hysteria2:443 可并存，shadowsocks:443 与任一其它协议冲突。检查受 SQLite 事务与 INSERT/UPDATE trigger 共同保护。
+
+settings 最大 64 KiB，不接受未知字段和 null 字段；省略密钥时创建自动生成、更新保留。Reality 公私钥为 32 字节无填充 base64url，公私钥必须匹配；显式提供私钥而省略公钥时自动推导。short_ids 为 1–16 个不重复的小写 hex，每项长度 2–16 且为偶数。SS PSK 为 16 字节标准 base64。Hy2 带宽范围为 0–1000000 Mbps，启用混淆时密码不能为空。regenerate-keys 旋转 Reality 密钥对和 short_ids、SS 服务端 PSK 或 Hy2 混淆密码；TUIC 使用用户凭据和节点证书，没有独立入站密钥。
+
+### Cert 与 NodeCore
+
+首次创建 Hy2/TUIC 入站自动生成节点证书，默认 SNI=`www.bing.com`；节点上的这两种协议共享证书。重新生成时省略 sni 或传空字符串，保留已有 SNI；没有旧证书则使用默认值。SNI 只接受 ASCII DNS 域名，不接受 IP、URL、端口和通配符。
+
+Cert 响应字段为 `server_id`、`sni`、`cert_pem`、`fingerprint_sha256`、`not_after`、`created_at`，两个时间为 Unix 秒。证书为 ECDSA P-256 自签，SAN 包含 SNI，有效期为生成时刻前 1 小时至后 3650 天。指纹是 DER 的 SHA256、大写 hex、冒号分隔。key_pem 只保存在数据库，API 不返回。
+
+NodeCore 含 `server_id`、`core`、`desired_version`、`installed_version`、`running`、`applied_revision`、`desired_revision`、`config_sha256`、`listening`、`firewall`、`last_error`、`updated_at`。既有和新建节点都会初始化：core=sing-box、running=false、修订号=0、listening=[]，其余可空字段为 null。本步该响应不能作为在线节点是否运行核心的依据。
+
+### Subscriber 与高级 JSON
+
+Subscriber 可写字段为 `name`（1–64 字）、`note`（最多 2000 字）、`enabled`（默认 true）、`traffic_limit`（0–9007199254740991 字节，默认 0）、`reset_day`（0–31，默认 0）、`expire_at`（YYYY-MM-DD，省略保留，null/空字符串清空）。限额、重置日和到期日的自动执行由步骤 16 实现。
+
+响应另含 `id`、`auto_disabled`、`traffic_used`、`period_start`、`created_at`、`updated_at`、`assigned_inbounds:[{inbound_id,server_id,server_name,protocol,port}]` 与去重节点数 `servers_count`。新用户 auto_disabled=none、traffic_used=0，period_start 为面板时区当日零点的 Unix 秒。四项凭据 `uuid`、`password`、`ss_user_key`、`sub_token` 由服务端生成，只有列表接口省略；不能通过普通 PUT 修改。
+
+分配最多 1000 项，ID 必须为正数、不重复且入站存在，`[]` 清空，省略或 null 拒绝；任何无效 ID 都不改变原分配。提交后通知变更前后涉及的节点，按节点去重。reset-token 保持三项代理凭据；regenerate-credentials 保持订阅 token。reset-usage 将 traffic_used 清零并删除当前 period_start 对应的节点汇总，将 quota 自动禁用恢复为 none；不改变 period_start、手动 enabled、expired 状态、过去账期或每日历史。
+
+extra_json 必须为最多 256 KiB 的对象；禁止顶层 inbounds/experimental/log。outbounds 必须为最多 1000 个对象，含非空 type 和唯一 tag，tag 不可为受管的 direct。route 必须为对象，rules 若存在必须为对象数组，final 若存在必须是非空字符串。其它顶层项可存储，完整合并与 sing-box check 留给步骤 13。
+
+### 事务、审计与迁移
+
+迁移 `0005_proxy.sql` 创建 inbounds、certs、node_core、config_revisions、node_advanced、subscribers、subscriber_assignments、subscriber_traffic、subscriber_traffic_daily。删除节点级联删除入站/证书/核心状态/修订/高级 JSON/分配，保留已计入用户额度的流量记录；删除用户才级联删除其流量。入站与用户 ID 使用 AUTOINCREMENT，不复用已删除 ID。
+
+所有代理写入使用 BEGIN IMMEDIATE，业务修改和审计同事务；审计失败回滚业务。提交成功后才通知节点。审计动作包括 `inbound.create/update/delete/regenerate_keys`、`cert.generate/regenerate`、`node_advanced.update`、`subscriber.create/update/delete/reset_token/regenerate_credentials/reset_usage`、`assignment.update`。私钥、PSK、密码、用户凭据与 token 替换为 `***`；高级 JSON 仅记录大小、SHA256 与脱敏标记，避免任意扩展字段中的密钥进入审计。

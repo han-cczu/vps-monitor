@@ -509,3 +509,45 @@ vps-agent core restart
 ufw/firewalld 的规则只添加，不回收。普通 Agent 卸载保留 sing-box、日志及核心状态；`uninstall.sh --purge-core` 才全部删除这些受管文件。该选项不撤销防火墙规则。
 
 本地真实验收及安全清理步骤见 [verify/corectl.md](verify/corectl.md)。面板核心操作 UI 和配置下发由后续第 13/14 步实现。
+
+## 16. 代理数据和凭据管理（步骤 12）
+
+本步提供管理员 API，代理/订阅页面仍待第 14/15 步实现；保存后只更新数据库，当前节点配置不会变化。完整字段和错误码见 [protocol.md 第 8 节](protocol.md#8-代理数据与凭据步骤-12)。新二进制启动时自动应用 0005 迁移，不需要手工创建表；上线前按已有备份流程保存数据库。回退旧版本时恢复匹配的备份，不在有业务数据的库上直接执行删除九张表的 Down 迁移。
+
+使用登录获得的管理员 JWT 调用以下接口（示例为请求体，不含真实凭据）：
+
+```http
+POST /api/servers/1/inbounds
+{"protocol":"vless","listen_port":443}
+
+POST /api/servers/1/inbounds
+{"protocol":"hysteria2","listen_port":443,"settings":{"obfs_enabled":true}}
+
+POST /api/subscribers
+{"name":"家庭设备","reset_day":1}
+
+PUT /api/subscribers/1/assignments
+{"inbound_ids":[1,2]}
+
+PUT /api/inbounds/1
+{"enabled":false}
+```
+
+节点、用户与入站 ID 应替换为实际返回值。Reality 和 Hy2 可以同端口分别使用 TCP/UDP；SS2022 同时占用两者。禁用入站仍保留端口；要释放数据模型中的端口需删除入站，这也会删除对应用户分配。
+
+| 操作 | 数据影响 |
+|---|---|
+| 入站 regenerate-keys | 旋转 Reality 密钥对与 short_ids、SS 服务端 PSK 或 Hy2 混淆密码；TUIC 应使用用户凭据/证书接口 |
+| 证书 cert/regenerate | 同节点 Hy2/TUIC 共用的新自签证书和指纹；可传 sni 修改域名 |
+| 用户 reset-token | 只更换订阅 URL 的 token，不修改三项连接凭据 |
+| 用户 regenerate-credentials | 更换 uuid/password/ss_user_key，保留订阅 token |
+| 用户 reset-usage | 清零当前用量及当前账期节点汇总，保留历史；只解除 quota 自动禁用，不解除 expired 或手动禁用 |
+| assignments 传空数组 | 清空该用户全部入站分配；传错 ID 会整体失败，保留原分配 |
+
+旋转凭据、证书和配置对实际连接的影响，需要第 13 步下发闭环接通后才生效；订阅 URL 服务由第 15 步实现。此阶段不能用接口成功响应判断客户端已断开或新配置已运行。`GET /api/servers/{id}/core` 当前只返回初始化的数据库行，不能代表 Agent 的实时状态。
+
+证书指纹用于后续客户端配置；证书为自签，API 不返回 key_pem。数据库备份包含代理私钥和用户凭据，按面板数据目录的敏感文件管理。管理员用户详情/创建/修改响应包含凭据，列表省略；代理接口都禁止缓存，审计会脱敏。
+
+高级 JSON 通过 `PUT /api/servers/{id}/advanced` 的 extra_json 对象全量替换；传 `{ "extra_json": {} }` 清空。不可覆盖受管的 inbounds/experimental/log 或使用 outbound tag=direct。通过结构校验代表数据已保存，完整配置检查与可运行性由第 13 步验证。
+
+本步本地验收结果见 [verify/proxy-model.md](verify/proxy-model.md)。测试使用独立 SQLite，未迁移或重启当前运行面板。

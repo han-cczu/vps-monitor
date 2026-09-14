@@ -4,7 +4,7 @@
 
 | 文件 | 作用 |
 |---|---|
-| `.github/workflows/ci.yml` | PR 与 main 上的静态检查：Go vet/test、前端 tsc/eslint/build |
+| `.github/workflows/ci.yml` | PR 与 main 上的 Go vet/test、Agent/代理数据竞态检查、前端 test/tsc/eslint/build |
 | `.github/workflows/release.yml` | 面板镜像与 Agent 发布 |
 | `.github/workflows/sing-box.yml` | 手动钉定核心版本；两架构编译、真实统计验证、Release 资产与源码 |
 
