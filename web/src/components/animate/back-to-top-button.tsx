@@ -32,7 +32,7 @@ export function BackToTopButton({
 
   return (
     <Fab
-      aria-label="Back to top"
+      aria-label="返回顶部"
       onClick={onBackToTop}
       sx={[
         (theme) => ({

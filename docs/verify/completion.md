@@ -48,6 +48,8 @@
 
 ## 本地运行交付
 
+后续界面补齐：用户指出外观抽屉仍有模板英文，已补齐公共组件中文并完成浏览器验收。当前本机版本已更新为 `local-steps20-zh`，程序为 `dist/local-panel/vps-server-zh.exe`，详见 [公共界面中文验收](chinese-ui.md)。以下为步骤 15–20 首次交付时的运行快照。
+
 集成提交 `8023bdc` 已快进合入 main。原 Step08 Windows 后端在一致性备份后替换为最终构建（版本标识 `local-steps20`），地址 `http://localhost:9000/dashboard`；前端开发端口8080保持运行。原数据库原地迁移至12，原账号密码与两节点保留，现有Agent重新在线。健康、认证、新设置/订阅接口和SQLite完整性检查均通过。
 
 运行程序为 `dist/local-panel/vps-server.exe`，本轮PID 14736；运行信息/检查结果为同目录 `runtime.json`、`verification.json`，日志为 `server.log` / `server-error.log`。原数据路径沿用旧进程配置；一致性备份为 `dist/local-panel/backup-before-steps20-20260914-212016/vm.db`。这些是本机运行状态，后续可能变化；未配置开机启动或远端部署。

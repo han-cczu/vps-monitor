@@ -6,6 +6,15 @@ import { alpha as hexAlpha } from '@mui/material/styles';
 
 import { OptionButton } from './styles';
 
+const presetLabels: Record<SettingsState['primaryColor'], string> = {
+  default: '绿色',
+  preset1: '天蓝色',
+  preset2: '紫色',
+  preset3: '蓝色',
+  preset4: '橙色',
+  preset5: '红色',
+};
+
 // ----------------------------------------------------------------------
 
 export type PresetsOptionsProps = BoxProps & {
@@ -41,6 +50,9 @@ export function PresetsOptions({
         return (
           <OptionButton
             key={option.name}
+            aria-label={presetLabels[option.name]}
+            title={presetLabels[option.name]}
+            aria-pressed={selected}
             onClick={() => onChangeOption(option.name)}
             sx={{
               height: 64,

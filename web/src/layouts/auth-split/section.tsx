@@ -32,9 +32,9 @@ export function AuthSplitSection({
   method,
   methods,
   layoutQuery = 'md',
-  title = 'Manage the job',
+  title = 'VPS 监控与节点管理',
   imgUrl = `${CONFIG.assetsDir}/assets/illustrations/illustration-dashboard.webp`,
-  subtitle = 'More effectively with optimized workflows.',
+  subtitle = '集中查看节点状态、流量与告警。',
   ...other
 }: AuthSplitSectionProps) {
   return (
@@ -80,7 +80,7 @@ export function AuthSplitSection({
 
       <Box
         component="img"
-        alt="Dashboard illustration"
+        alt="面板示意图"
         src={imgUrl}
         sx={{ width: 1, aspectRatio: '4/3', objectFit: 'cover' }}
       />

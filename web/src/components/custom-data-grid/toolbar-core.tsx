@@ -216,7 +216,7 @@ export function CustomToolbarQuickFilter({
                     ),
                     endAdornment: state.value ? (
                       <InputAdornment position="end">
-                        <QuickFilterClear edge="end" size="small" aria-label="Clear search">
+                        <QuickFilterClear edge="end" size="small" aria-label="清空搜索">
                           <Iconify icon="mingcute:close-line" width={16} />
                         </QuickFilterClear>
                       </InputAdornment>

@@ -27,7 +27,7 @@ const baseChartOptions = (theme: Theme): ChartOptions => {
   const labelStyles = {
     total: {
       show: true,
-      label: 'Total',
+      label: '合计',
       color: theme.vars.palette.text.secondary,
       fontSize: theme.typography.subtitle2.fontSize as string,
       fontWeight: theme.typography.subtitle2.fontWeight,

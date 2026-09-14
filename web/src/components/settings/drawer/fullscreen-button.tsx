@@ -21,8 +21,12 @@ export function FullScreenButton() {
   }, []);
 
   return (
-    <Tooltip title={fullscreen ? 'Exit' : 'Fullscreen'}>
-      <IconButton onClick={handleToggleFullscreen} color={fullscreen ? 'primary' : 'default'}>
+    <Tooltip title={fullscreen ? '退出全屏' : '全屏显示'}>
+      <IconButton
+        aria-label={fullscreen ? '退出全屏' : '全屏显示'}
+        onClick={handleToggleFullscreen}
+        color={fullscreen ? 'primary' : 'default'}
+      >
         <Iconify
           icon={
             fullscreen

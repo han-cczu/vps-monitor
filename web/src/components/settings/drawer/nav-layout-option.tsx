@@ -13,6 +13,7 @@ export type NavLayoutOptionProps = BoxProps & {
   value: SettingsState['navLayout'];
   options: {
     value: SettingsState['navLayout'];
+    label: string;
     icon: React.ReactNode;
   }[];
   onChangeOption: (newOption: SettingsState['navLayout']) => void;
@@ -43,6 +44,9 @@ export function NavLayoutOptions({
         return (
           <OptionButton
             key={option.value}
+            aria-label={option.label}
+            title={option.label}
+            aria-pressed={selected}
             selected={selected}
             onClick={() => onChangeOption(option.value)}
             sx={[
@@ -98,6 +102,7 @@ export function NavColorOptions({
           <OptionButton
             key={option.value}
             selected={selected}
+            aria-pressed={selected}
             onClick={() => onChangeOption(option.value)}
             sx={{ gap: 1.5, height: 56 }}
           >

@@ -56,7 +56,12 @@ export function LargeBlock({
     <LargeBlockRoot sx={sx} {...other}>
       <LargeLabel>
         {canReset && (
-          <ButtonBase disableRipple onClick={onReset} sx={{ ml: -0.5, mr: 0.5 }}>
+          <ButtonBase
+            disableRipple
+            aria-label={`重置${title}`}
+            onClick={onReset}
+            sx={{ ml: -0.5, mr: 0.5 }}
+          >
             <Iconify width={14} icon="solar:restart-bold" sx={{ opacity: 0.64 }} />
           </ButtonBase>
         )}
@@ -122,7 +127,12 @@ const SmallLabel = styled(ButtonBase, {
 export function SmallBlock({ label, canReset, onReset, sx, children, ...other }: SmallBlockProps) {
   return (
     <SmallBlockRoot sx={sx} {...other}>
-      <SmallLabel disableRipple canReset={canReset} onClick={canReset ? onReset : undefined}>
+      <SmallLabel
+        disableRipple
+        aria-label={canReset ? `重置${label}` : label}
+        canReset={canReset}
+        onClick={canReset ? onReset : undefined}
+      >
         {canReset && <Iconify width={14} icon="solar:restart-bold" />}
         {label}
       </SmallLabel>

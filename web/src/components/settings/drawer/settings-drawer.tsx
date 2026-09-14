@@ -68,21 +68,21 @@ export function SettingsDrawer({ sx, defaultSettings }: SettingsDrawerProps) {
       }}
     >
       <Typography variant="h6" sx={{ flexGrow: 1 }}>
-        Settings
+        外观设置
       </Typography>
 
       <FullScreenButton />
 
-      <Tooltip title="Reset all">
-        <IconButton onClick={handleReset}>
+      <Tooltip title="恢复默认设置">
+        <IconButton aria-label="恢复默认设置" onClick={handleReset}>
           <Badge color="error" variant="dot" invisible={!settings.canReset}>
             <Iconify icon="solar:restart-bold" />
           </Badge>
         </IconButton>
       </Tooltip>
 
-      <Tooltip title="Close">
-        <IconButton onClick={settings.onCloseDrawer}>
+      <Tooltip title="关闭">
+        <IconButton aria-label="关闭外观设置" onClick={settings.onCloseDrawer}>
           <Iconify icon="mingcute:close-line" />
         </IconButton>
       </Tooltip>
@@ -91,7 +91,7 @@ export function SettingsDrawer({ sx, defaultSettings }: SettingsDrawerProps) {
 
   const renderMode = () => (
     <BaseOption
-      label="Mode"
+      label="深色模式"
       selected={settings.state.mode === 'dark'}
       icon={<SvgIcon>{settingIcons.moon}</SvgIcon>}
       action={
@@ -104,7 +104,7 @@ export function SettingsDrawer({ sx, defaultSettings }: SettingsDrawerProps) {
               fontWeight: 'fontWeightSemiBold',
             }}
           >
-            System
+            跟随系统
           </Label>
         ) : null
       }
@@ -117,7 +117,7 @@ export function SettingsDrawer({ sx, defaultSettings }: SettingsDrawerProps) {
 
   const renderContrast = () => (
     <BaseOption
-      label="Contrast"
+      label="高对比度"
       selected={settings.state.contrast === 'high'}
       icon={<SvgIcon>{settingIcons.contrast}</SvgIcon>}
       onChangeOption={() => {
@@ -130,7 +130,7 @@ export function SettingsDrawer({ sx, defaultSettings }: SettingsDrawerProps) {
 
   const renderDirection = () => (
     <BaseOption
-      label="Right to left"
+      label="从右向左"
       selected={settings.state.direction === 'rtl'}
       icon={<SvgIcon>{settingIcons.alignRight}</SvgIcon>}
       onChangeOption={() => {
@@ -141,8 +141,8 @@ export function SettingsDrawer({ sx, defaultSettings }: SettingsDrawerProps) {
 
   const renderCompactLayout = () => (
     <BaseOption
-      tooltip="Dashboard only and available at large resolutions > 1600px (xl)"
-      label="Compact"
+      tooltip="仅适用于面板页面，在宽度超过 1600 像素时生效"
+      label="紧凑布局"
       selected={!!settings.state.compactLayout}
       icon={<SvgIcon>{settingIcons.autofitWidth}</SvgIcon>}
       onChangeOption={() => {
@@ -153,7 +153,7 @@ export function SettingsDrawer({ sx, defaultSettings }: SettingsDrawerProps) {
 
   const renderPresets = () => (
     <LargeBlock
-      title="Presets"
+      title="主题配色"
       canReset={settings.state.primaryColor !== defaultSettings.primaryColor}
       onReset={() => {
         settings.setState({ primaryColor: defaultSettings.primaryColor });
@@ -176,10 +176,10 @@ export function SettingsDrawer({ sx, defaultSettings }: SettingsDrawerProps) {
   );
 
   const renderNav = () => (
-    <LargeBlock title="Nav" tooltip="Dashboard only" sx={{ gap: 2.5 }}>
+    <LargeBlock title="导航" tooltip="仅适用于面板页面" sx={{ gap: 2.5 }}>
       {visibility.navLayout && (
         <SmallBlock
-          label="Layout"
+          label="布局"
           canReset={settings.state.navLayout !== defaultSettings.navLayout}
           onReset={() => {
             settings.setState({ navLayout: defaultSettings.navLayout });
@@ -193,18 +193,21 @@ export function SettingsDrawer({ sx, defaultSettings }: SettingsDrawerProps) {
             options={[
               {
                 value: 'vertical',
+                label: '侧边导航',
                 icon: (
                   <SvgIcon sx={{ width: 1, height: 'auto' }}>{settingIcons.navVertical}</SvgIcon>
                 ),
               },
               {
                 value: 'horizontal',
+                label: '顶部导航',
                 icon: (
                   <SvgIcon sx={{ width: 1, height: 'auto' }}>{settingIcons.navHorizontal}</SvgIcon>
                 ),
               },
               {
                 value: 'mini',
+                label: '精简导航',
                 icon: <SvgIcon sx={{ width: 1, height: 'auto' }}>{settingIcons.navMini}</SvgIcon>,
               },
             ]}
@@ -213,7 +216,7 @@ export function SettingsDrawer({ sx, defaultSettings }: SettingsDrawerProps) {
       )}
       {visibility.navColor && (
         <SmallBlock
-          label="Color"
+          label="背景样式"
           canReset={settings.state.navColor !== defaultSettings.navColor}
           onReset={() => {
             settings.setState({ navColor: defaultSettings.navColor });
@@ -226,12 +229,12 @@ export function SettingsDrawer({ sx, defaultSettings }: SettingsDrawerProps) {
             }}
             options={[
               {
-                label: 'Integrate',
+                label: '融入背景',
                 value: 'integrate',
                 icon: <SvgIcon>{settingIcons.sidebarOutline}</SvgIcon>,
               },
               {
-                label: 'Apparent',
+                label: '突出显示',
                 value: 'apparent',
                 icon: <SvgIcon>{settingIcons.sidebarFill}</SvgIcon>,
               },
@@ -243,10 +246,10 @@ export function SettingsDrawer({ sx, defaultSettings }: SettingsDrawerProps) {
   );
 
   const renderFont = () => (
-    <LargeBlock title="Font" sx={{ gap: 2.5 }}>
+    <LargeBlock title="字体" sx={{ gap: 2.5 }}>
       {visibility.fontFamily && (
         <SmallBlock
-          label="Family"
+          label="字体系列"
           canReset={settings.state.fontFamily !== defaultSettings.fontFamily}
           onReset={() => {
             settings.setState({ fontFamily: defaultSettings.fontFamily });
@@ -269,7 +272,7 @@ export function SettingsDrawer({ sx, defaultSettings }: SettingsDrawerProps) {
       )}
       {visibility.fontSize && (
         <SmallBlock
-          label="Size"
+          label="字号"
           canReset={settings.state.fontSize !== defaultSettings.fontSize}
           onReset={() => {
             settings.setState({ fontSize: defaultSettings.fontSize });
@@ -303,6 +306,7 @@ export function SettingsDrawer({ sx, defaultSettings }: SettingsDrawerProps) {
                 color: varAlpha(theme.vars.palette.background.defaultChannel, 0.9),
               }),
               width: 360,
+              maxWidth: '100vw',
             }),
             ...(Array.isArray(sx) ? sx : [sx]),
           ],

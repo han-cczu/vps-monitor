@@ -51,7 +51,7 @@ function renderErrorMessage(error: any) {
 
     return (
       <>
-        <h1 className={errorBoundaryClasses.title}>Unexpected Application Error!</h1>
+        <h1 className={errorBoundaryClasses.title}>页面加载失败</h1>
         <p className={errorBoundaryClasses.message}>
           {error.name}: {error.message}
         </p>
@@ -65,7 +65,7 @@ function renderErrorMessage(error: any) {
     );
   }
 
-  return <h1 className={errorBoundaryClasses.title}>Unknown Error</h1>;
+  return <h1 className={errorBoundaryClasses.title}>未知错误</h1>;
 }
 
 // ----------------------------------------------------------------------

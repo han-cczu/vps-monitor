@@ -35,7 +35,14 @@ export function BaseOption({
       <TopContainer>
         {icon}
         {action ?? (
-          <Switch name={label} size="small" color="default" checked={selected} sx={{ mr: -0.75 }} />
+          <Switch
+            name={label}
+            size="small"
+            color="default"
+            checked={selected}
+            slotProps={{ input: { 'aria-label': label } }}
+            sx={{ mr: -0.75 }}
+          />
         )}
       </TopContainer>
 

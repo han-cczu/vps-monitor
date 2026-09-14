@@ -84,8 +84,8 @@ export function FontSizeOptions({
       step={1}
       size="small"
       valueLabelDisplay="on"
-      aria-label="Change font size"
-      valueLabelFormat={(val) => `${val}px`}
+      aria-label="调整字号"
+      valueLabelFormat={(val) => `${val} 像素`}
       value={value}
       min={options[0]}
       max={options[1]}

@@ -180,8 +180,8 @@ export function SubscriberForm({
             {tab === 'credentials' && current && (
               <>
                 <CopyField secret label="UUID" value={current.uuid ?? ''} />
-                <CopyField secret label="Password" value={current.password ?? ''} />
-                <CopyField secret label="SS user key" value={current.ss_user_key ?? ''} />
+                <CopyField secret label="密码" value={current.password ?? ''} />
+                <CopyField secret label="SS 用户密钥" value={current.ss_user_key ?? ''} />
                 <Button color="error" onClick={() => setConfirm(true)}>
                   重新生成凭据
                 </Button>

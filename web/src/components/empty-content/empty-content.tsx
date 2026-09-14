@@ -40,7 +40,7 @@ export function EmptyContent({
     <ContentRoot filled={filled} sx={sx} {...other}>
       <Box
         component="img"
-        alt="Empty content"
+        alt="暂无内容"
         src={imgUrl ?? `${CONFIG.assetsDir}/assets/icons/empty/ic-content.svg`}
         {...slotProps?.img}
         sx={[

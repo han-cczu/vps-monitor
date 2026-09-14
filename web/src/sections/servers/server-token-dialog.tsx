@@ -40,7 +40,7 @@ export function ServerTokenDialog({ info, onClose }: Props) {
 
   return (
     <Dialog fullWidth maxWidth="sm" open={!!info} onClose={onClose}>
-      <DialogTitle>{info?.reason === 'reset' ? '新的 agent token' : '节点已创建'}</DialogTitle>
+      <DialogTitle>{info?.reason === 'reset' ? '新的 Agent 连接令牌' : '节点已创建'}</DialogTitle>
 
       <DialogContent dividers sx={{ display: 'grid', gap: 2.5 }}>
         <Alert severity="warning">
@@ -60,7 +60,7 @@ export function ServerTokenDialog({ info, onClose }: Props) {
         />
 
         <CopyBlock
-          label="agent token"
+          label="Agent 连接令牌"
           value={info?.token ?? ''}
           onCopy={() => copy(info?.token ?? '', 'token')}
         />

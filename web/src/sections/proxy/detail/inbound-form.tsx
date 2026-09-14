@@ -142,7 +142,7 @@ export function InboundForm({
                 />
                 <Field.Text
                   name="short_ids"
-                  label="Short IDs"
+                  label="短标识（Short IDs）"
                   disabled={isSubmitting}
                   helperText={
                     current

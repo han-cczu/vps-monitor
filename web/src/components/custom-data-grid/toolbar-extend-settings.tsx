@@ -63,10 +63,10 @@ const GRID_DENSITY_OPTIONS: {
   value: GridSettingsState['density'];
   icon: React.ReactNode;
 }[] = [
-  { label: 'Compact density', value: 'compact', icon: <DensityCompactIcon /> },
-  { label: 'Standard density', value: 'standard', icon: <DensityStandardIcon /> },
+  { label: '紧凑行距', value: 'compact', icon: <DensityCompactIcon /> },
+  { label: '标准行距', value: 'standard', icon: <DensityStandardIcon /> },
   {
-    label: 'Comfortable density',
+    label: '宽松行距',
     value: 'comfortable',
     icon: <DensityComfortableIcon />,
   },
@@ -76,7 +76,7 @@ export function CustomToolbarSettingsButton({
   settings,
   onChangeSettings,
   showLabel,
-  label = 'Settings',
+  label = '表格设置',
 }: Pick<ToolbarButtonBaseProps, 'label' | 'showLabel'> & CustomToolbarSettingsButtonProps) {
   const { open, anchorEl, onClose, onOpen } = usePopover();
 
@@ -155,8 +155,8 @@ export function CustomToolbarSettingsButton({
 
         <Divider />
 
-        {renderToggleOption('Show column borders', 'showColumnVerticalBorder')}
-        {renderToggleOption('Show cell borders', 'showCellVerticalBorder')}
+        {renderToggleOption('显示列边框', 'showColumnVerticalBorder')}
+        {renderToggleOption('显示单元格边框', 'showCellVerticalBorder')}
       </Menu>
     </>
   );

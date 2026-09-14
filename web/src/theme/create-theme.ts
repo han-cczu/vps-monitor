@@ -2,7 +2,10 @@ import type { Theme, Components } from '@mui/material/styles';
 import type { ThemeOptions } from './types';
 import type { SettingsState } from 'src/components/settings';
 
+import { zhCN as materialZhCN } from '@mui/material/locale';
+import { zhCN as dataGridZhCN } from '@mui/x-data-grid/locales';
 import { createTheme as createMuiTheme } from '@mui/material/styles';
+import { zhCN as datePickersZhCN } from '@mui/x-date-pickers/locales';
 
 import { mixins } from './core/mixins';
 import { opacity } from './core/opacity';
@@ -59,7 +62,15 @@ export function createTheme({
   const updatedComponents = settingsState ? applySettingsToComponents(settingsState) : {};
 
   // Create and return the final theme
-  const theme = createMuiTheme(updatedCore, updatedComponents, localeComponents, themeOverrides);
+  const theme = createMuiTheme(
+    updatedCore,
+    updatedComponents,
+    materialZhCN,
+    dataGridZhCN,
+    datePickersZhCN,
+    localeComponents,
+    themeOverrides
+  );
 
   return theme;
 }

@@ -2,7 +2,7 @@
 
 export function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
-    return error.message || error.name || 'An error occurred';
+    return error.message || error.name || '操作失败，请稍后重试';
   }
 
   if (typeof error === 'string') {
@@ -16,5 +16,5 @@ export function getErrorMessage(error: unknown): string {
     }
   }
 
-  return `Unknown error: ${error}`;
+  return '发生未知错误，请稍后重试';
 }

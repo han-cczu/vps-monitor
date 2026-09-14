@@ -181,7 +181,7 @@ export function AdvancedJSON({ serverId }: { serverId: number }) {
             multiline
             minRows={16}
             maxRows={26}
-            label="extra_json"
+            label="高级 JSON 配置"
             value={text}
             onChange={(e) => {
               setText(e.target.value);

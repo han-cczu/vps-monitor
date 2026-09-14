@@ -93,7 +93,7 @@ export function ChannelsView() {
                 color="text.secondary"
                 sx={{ overflowWrap: 'anywhere', mb: 2 }}
               >
-                {c.kind === 'telegram' ? `Telegram · Chat ID ${c.config.chat_id}` : c.config.url}
+                {c.kind === 'telegram' ? `Telegram · 聊天 ID ${c.config.chat_id}` : c.config.url}
               </Typography>
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                 <Button
@@ -204,7 +204,7 @@ function ChannelForm({
           {kind === 'telegram' ? (
             <>
               <TextField
-                label="Bot token"
+                label="机器人令牌"
                 type="password"
                 autoComplete="new-password"
                 value={token}
@@ -217,7 +217,7 @@ function ChannelForm({
                 disabled={busy}
               />
               <TextField
-                label="Chat ID"
+                label="聊天 ID"
                 value={chatID}
                 onChange={(e) => setChatID(e.target.value)}
                 disabled={busy}
@@ -226,14 +226,14 @@ function ChannelForm({
           ) : (
             <>
               <TextField
-                label="Webhook URL"
+                label="Webhook 地址"
                 value={url}
                 onChange={(e) => setURL(e.target.value)}
                 placeholder="https://example.com/webhook"
                 disabled={busy}
               />
               <TextField
-                label="HMAC secret（可选）"
+                label="HMAC 签名密钥（可选）"
                 type="password"
                 autoComplete="new-password"
                 value={secret}

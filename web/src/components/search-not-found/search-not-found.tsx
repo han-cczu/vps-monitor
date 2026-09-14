@@ -20,7 +20,7 @@ export function SearchNotFound({ query, sx, slotProps, ...other }: SearchNotFoun
   if (!query) {
     return (
       <Typography variant="body2" {...slotProps?.description}>
-        Please enter keywords
+        请输入关键词
       </Typography>
     );
   }
@@ -47,14 +47,12 @@ export function SearchNotFound({ query, sx, slotProps, ...other }: SearchNotFoun
           ...(Array.isArray(slotProps?.title?.sx) ? slotProps.title.sx : [slotProps?.title?.sx]),
         ]}
       >
-        Not found
+        未找到结果
       </Typography>
 
       <Typography variant="body2" {...slotProps?.description}>
-        No results found for &nbsp;
-        <strong>{`"${query}"`}</strong>
-        .
-        <br /> Try checking for typos or using complete words.
+        没有找到与<strong>{`“${query}”`}</strong>相关的结果。
+        <br /> 请检查输入内容，或换一个关键词。
       </Typography>
     </Box>
   );

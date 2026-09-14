@@ -40,13 +40,13 @@ export function RoleBasedGuard({
       >
         <m.div variants={varBounce('in')}>
           <Typography variant="h3" sx={{ mb: 2 }}>
-            Permission denied
+            无权访问
           </Typography>
         </m.div>
 
         <m.div variants={varBounce('in')}>
           <Typography sx={{ color: 'text.secondary' }}>
-            You do not have permission to access this page.
+            当前账号没有访问此页面的权限。
           </Typography>
         </m.div>
 

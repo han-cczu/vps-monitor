@@ -39,7 +39,7 @@ export function Logo({
     *
     const singleLogo = (
       <img
-        alt="Single logo"
+        alt="站点标志"
         src={`${CONFIG.assetsDir}/logo/logo-single.svg`}
         width="100%"
         height="100%"
@@ -48,7 +48,7 @@ export function Logo({
 
     const fullLogo = (
       <img
-        alt="Full logo"
+        alt="站点标志"
         src={`${CONFIG.assetsDir}/logo/logo-full.svg`}
         width="100%"
         height="100%"
@@ -191,7 +191,7 @@ export function Logo({
     <LogoRoot
       component={RouterLink}
       href={href}
-      aria-label="Logo"
+      aria-label="首页"
       underline="none"
       className={mergeClasses([logoClasses.root, className])}
       sx={[

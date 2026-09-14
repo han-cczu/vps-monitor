@@ -16,9 +16,11 @@ export function Snackbar() {
         offset={16}
         visibleToasts={4}
         position="top-right"
+        containerAriaLabel="通知"
         className={snackbarClasses.root}
         toastOptions={{
           unstyled: true,
+          closeButtonAriaLabel: '关闭通知',
           classNames: {
             toast: snackbarClasses.toast,
             icon: snackbarClasses.icon,

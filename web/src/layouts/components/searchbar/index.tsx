@@ -109,6 +109,7 @@ export function Searchbar({ data: navItems = [], sx, ...other }: SearchbarProps)
     >
       <Box
         component={smUp ? 'span' : IconButton}
+        aria-label="搜索页面"
         sx={{
           [theme.breakpoints.up(breakpoint)]: {
             p: 1,
@@ -188,7 +189,7 @@ export function Searchbar({ data: navItems = [], sx, ...other }: SearchbarProps)
         <InputBase
           fullWidth
           autoFocus={open}
-          placeholder="Search..."
+          placeholder="搜索页面…"
           value={searchQuery}
           onChange={handleSearch}
           startAdornment={
@@ -197,7 +198,7 @@ export function Searchbar({ data: navItems = [], sx, ...other }: SearchbarProps)
             </InputAdornment>
           }
           endAdornment={<Label sx={{ letterSpacing: 1, color: 'text.secondary' }}>esc</Label>}
-          inputProps={{ id: 'search-input' }}
+          inputProps={{ id: 'search-input', 'aria-label': '搜索页面' }}
           sx={{
             p: 3,
             borderBottom: `solid 1px ${theme.vars.palette.divider}`,
