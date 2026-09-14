@@ -2,6 +2,18 @@
 #
 # WebSocket（/api/ws 与 /api/agent/ws）不需要额外配置：Caddy v2 的 reverse_proxy
 # 会原样透传 Upgrade 握手。HTTP 会自动跳 HTTPS，证书由 Caddy 自动签发续期。
+{
+	# 上游故障的 error logger 独立于站点访问日志；也不能留下订阅 URL。
+	log default {
+		format filter {
+			wrap json
+			fields {
+				request>uri delete
+				request>headers>Referer delete
+			}
+		}
+	}
+}
 
 {$PANEL_DOMAIN} {
 	reverse_proxy server:9000
