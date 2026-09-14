@@ -34,5 +34,8 @@ func (db *DB) SetSetting(ctx context.Context, key string, v any) error {
 		"INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
 		key, string(raw),
 	)
+	if err == nil {
+		db.InvalidateSubscriptions()
+	}
 	return err
 }

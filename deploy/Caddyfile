@@ -6,14 +6,25 @@
 {$PANEL_DOMAIN} {
 	reverse_proxy server:9000
 
-	# 访问日志按天轮转，保留 14 天。query 不记——步骤 15 的订阅链接把 token 放在 query 里。
+	# 订阅 token 位于路径中；该路由禁记访问日志（也避免记录完整订阅 URL）。
+	@subscription path /sub/*
+	log_skip @subscription
+	# 访问日志按大小轮转，保留 14 天。
 	log {
 		output file /data/access.log {
 			roll_size 10MiB
 			roll_keep 14
 			roll_keep_for 336h
 		}
-		format json
+		format filter {
+			wrap json
+			fields {
+				request>uri query {
+					delete token
+				}
+				request>headers>Referer delete
+			}
+		}
 	}
 
 	encode gzip zstd

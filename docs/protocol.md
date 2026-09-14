@@ -556,3 +556,14 @@ core.stats 不信任 Agent 时间，按面板接收日期归入 daily；用户�
 - 表单保存只发送可写 settings，省略 private_key/public_key/server_psk/obfs_password；首次 VLESS 留空 Short IDs 时省略该字段以自动生成，编辑态至少一项。密钥重生使用专用接口。
 - 手动 apply 以响应中的 revision/sha256/version 为目标，观察在线、运行、pending=false 且三字段匹配后结束等待；UI 最多等待 60 s，不代替服务端的 req_id 确认机制。
 - 日志显示/复制移除 ANSI 颜色序列，关闭抽屉取消 HTTP 等待；不会把主动取消显示为网络故障。所有密码与完整修订仅在既有管理员接口范围内读取。
+
+
+## 步骤 15：公开订阅与用户流量
+
+`GET /sub/{token}?format=clash|clash-provider` 无 JWT，未知 token 返回空 404；默认 clash。有效 token 每分钟 30 次，第 31 次 429 / Retry-After: 60。响应 no-store、text/yaml、profile-update-interval: 24 和 RFC 5987 文件名。subscription-userinfo 用 upload=0、download=traffic_used（计费累计量），不限额省略 total、无到期省略 expire；到期时间为面板时区该日结束。
+
+用户手动或自动停用返回 200 空 proxies 和原因注释。仅收集已分配且启用的入站、现存且 public_host 非空的节点；同名加端口，跨同名节点再次冲突加 ID。模板 key sub.clash_template，缺省由 sub.DefaultClashTemplate 提供；含 PROXIES 和 PROXY_NAMES 占位，最终 YAML 必须为单文档且保持代理列表。
+
+10 秒内存缓存仅保存渲染体，key 为 token 的 SHA-256 加格式；所有成功代理事务（用户、凭据、token、分配、入站、证书）以及设置和节点写入递增 DB.SubscriptionEpoch。调用直接 SQL 更新相关源的后续服务必须调用 DB.InvalidateSubscriptions。每次重新查 token/用户并生成用量头；变更期间完成的旧渲染不写入新 epoch 缓存。
+
+`GET /api/subscribers/{id}/traffic` 需 JWT，返回 by_server:[{server_id,name,up,down}]（当前 period_start，删除节点保留原用量与 ID）、daily:[{date,up,down}]（面板日期最近 30 天，缺日补零）。方向量是原始上下行数据，不保证与切换计费模式后的累计 traffic_used 相等。

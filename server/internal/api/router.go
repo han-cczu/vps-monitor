@@ -47,12 +47,13 @@ type Deps struct {
 
 	// Hub 是实时状态中心。为 nil 时两个 WS 端点不注册、REST 里的 online 恒为 false，
 	// 单元测试就是这么跑的（hub 的行为由 hub 包自己的测试覆盖）。
-	Hub        *hub.Hub
-	Ping       *ping.Service
-	CoreFiles  *corefiles.Store
-	Proxy      *proxy.Service
-	Reconciler *proxy.Reconciler
-	coreSlots  chan struct{}
+	Hub           *hub.Hub
+	Ping          *ping.Service
+	CoreFiles     *corefiles.Store
+	Proxy         *proxy.Service
+	Reconciler    *proxy.Reconciler
+	coreSlots     chan struct{}
+	subscriptions *subscriptionCache
 
 	// verifySem 由 NewRouter 初始化，限制并发密码校验数。
 	verifySem chan struct{}
@@ -63,6 +64,7 @@ func NewRouter(deps Deps) http.Handler {
 	d := &deps
 	d.verifySem = make(chan struct{}, maxConcurrentVerify)
 	d.coreSlots = make(chan struct{}, 2)
+	d.subscriptions = newSubscriptionCache()
 	if d.Proxy == nil {
 		d.Proxy = proxy.New(d.DB, proxy.NoopNotifier{})
 	}
@@ -134,6 +136,7 @@ func NewRouter(deps Deps) http.Handler {
 
 	// agent 装机时还没有任何凭据，这两个下载地址是公开的（内容见 {DataDir}/agent/）
 	r.Get("/install.sh", d.installScript)
+	r.Get("/sub/{token}", d.subscription)
 	r.Get("/agent/{file}", d.agentFile)
 	// 没带文件名的 /agent 与 /agent/ 也留在这里：白名单不命中，回纯文本 404，
 	// 不要落到 SPA 回退去给 curl 一段 HTML
@@ -164,7 +167,7 @@ func requestLogger(next http.Handler) http.Handler {
 			}
 			slog.Log(r.Context(), level, "http",
 				"method", r.Method,
-				"path", r.URL.Path,
+				"path", safeRequestPath(r),
 				"status", ww.Status(),
 				"bytes", ww.BytesWritten(),
 				"dur_ms", time.Since(start).Milliseconds(),
@@ -219,7 +222,7 @@ func recoverer(next http.Handler) http.Handler {
 			slog.Error("panic recovered",
 				"err", fmt.Sprint(rvr),
 				"method", r.Method,
-				"path", r.URL.Path,
+				"path", safeRequestPath(r),
 				"req_id", middleware.GetReqID(r.Context()),
 				"stack", string(debug.Stack()),
 			)

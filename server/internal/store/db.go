@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"path/filepath"
+	"sync/atomic"
 
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite" // 纯 Go SQLite 驱动，驱动名 "sqlite"
@@ -26,7 +27,11 @@ var ErrNotFound = errors.New("store: not found")
 // DB 是打开的数据库句柄，各表的方法都挂在它上面。
 type DB struct {
 	*sql.DB
+	subscriptionEpoch atomic.Uint64
 }
+
+func (db *DB) SubscriptionEpoch() uint64 { return db.subscriptionEpoch.Load() }
+func (db *DB) InvalidateSubscriptions()  { db.subscriptionEpoch.Add(1) }
 
 // dsnParams 是每个连接建立时执行的 PRAGMA。busy_timeout 由驱动保证最先执行。
 const dsnParams = "_pragma=busy_timeout(5000)" +
