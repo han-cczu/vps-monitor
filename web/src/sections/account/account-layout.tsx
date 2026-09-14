@@ -16,8 +16,18 @@ import { CustomBreadcrumbs } from 'src/components/custom-breadcrumbs';
 
 // ----------------------------------------------------------------------
 
-// 设置共享导航；TOTP 在步骤 20 加进来。
+// 设置共享导航。
 const NAV_ITEMS = [
+  {
+    label: '站点',
+    href: paths.dashboard.settings.site,
+    icon: <Iconify width={24} icon="solar:settings-bold" />,
+  },
+  {
+    label: '审计',
+    href: paths.dashboard.settings.audit,
+    icon: <Iconify width={24} icon="solar:list-bold" />,
+  },
   {
     label: '代理核心',
     href: paths.dashboard.settings.corefiles,

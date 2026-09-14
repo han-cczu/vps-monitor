@@ -7,6 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import Box from '@mui/material/Box';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
+import TextField from '@mui/material/TextField';
 import IconButton from '@mui/material/IconButton';
 import InputAdornment from '@mui/material/InputAdornment';
 
@@ -18,7 +19,7 @@ import { Form, Field } from 'src/components/hook-form';
 import { useAuthContext } from '../../hooks';
 import { getErrorMessage } from '../../utils';
 import { FormHead } from '../../components/form-head';
-import { signInWithPassword } from '../../context/jwt';
+import { signInWithMFA, signInWithPassword } from '../../context/jwt';
 
 // ----------------------------------------------------------------------
 
@@ -41,6 +42,9 @@ export function JwtSignInView() {
 
   const { checkUserSession } = useAuthContext();
 
+  const [ticket, setTicket] = useState<string | null>(null);
+  const [code, setCode] = useState('');
+  const [mfaBusy, setMfaBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // 会话到期被踢回来时带 ?reason=expired
@@ -64,7 +68,13 @@ export function JwtSignInView() {
   const onSubmit = handleSubmit(async (data) => {
     try {
       setErrorMessage(null);
-      await signInWithPassword({ username: data.username, password: data.password });
+      const result = await signInWithPassword({ username: data.username, password: data.password });
+      if (result.mfaRequired) {
+        setTicket(result.ticket);
+        setCode('');
+        methods.setValue('password', '');
+        return;
+      }
       await checkUserSession?.();
 
       router.refresh();
@@ -136,9 +146,55 @@ export function JwtSignInView() {
         </Alert>
       )}
 
-      <Form methods={methods} onSubmit={onSubmit}>
-        {renderForm()}
-      </Form>
+      {ticket ? (
+        <Box
+          component="form"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setMfaBusy(true);
+            setErrorMessage(null);
+            try {
+              await signInWithMFA(ticket, code);
+              await checkUserSession?.();
+              router.refresh();
+            } catch (error) {
+              setTicket(null);
+              setCode('');
+              setErrorMessage(getErrorMessage(error));
+            } finally {
+              setMfaBusy(false);
+            }
+          }}
+          sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}
+        >
+          <Alert severity="info">
+            请输入验证器中的验证码。验证步骤五分钟有效，每次提交后需重新登录。
+          </Alert>
+          <TextField
+            autoFocus
+            label="六位验证码"
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            autoComplete="one-time-code"
+            slotProps={{ htmlInput: { inputMode: 'numeric', maxLength: 6, pattern: '[0-9]{6}' } }}
+          />
+          <Button type="submit" variant="contained" loading={mfaBusy} disabled={code.length !== 6}>
+            验证并登录
+          </Button>
+          <Button
+            onClick={() => {
+              setTicket(null);
+              setCode('');
+            }}
+          >
+            返回密码登录
+          </Button>
+        </Box>
+      ) : (
+        <Form methods={methods} onSubmit={onSubmit}>
+          {renderForm()}
+        </Form>
+      )}
     </>
   );
 }

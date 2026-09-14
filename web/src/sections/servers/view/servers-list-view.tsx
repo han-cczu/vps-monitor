@@ -10,6 +10,7 @@ import Button from '@mui/material/Button';
 import Tooltip from '@mui/material/Tooltip';
 import { DataGrid } from '@mui/x-data-grid';
 import Typography from '@mui/material/Typography';
+import useMediaQuery from '@mui/material/useMediaQuery';
 
 import { paths } from 'src/routes/paths';
 import { useRouter } from 'src/routes/hooks';
@@ -17,6 +18,7 @@ import { useRouter } from 'src/routes/hooks';
 import { daysUntil, formatPrice, formatBytes } from 'src/utils/format';
 
 import { DashboardContent } from 'src/layouts/dashboard';
+import { updateAgents, useAgentVersions } from 'src/api/settings';
 import { useServers, deleteServer, resetServerToken } from 'src/api/servers';
 
 import { Label } from 'src/components/label';
@@ -38,6 +40,24 @@ import { ServerTokenDialog, type ServerTokenInfo } from '../server-token-dialog'
 
 export function ServersListView() {
   const router = useRouter();
+  const small = useMediaQuery((theme) => theme.breakpoints.down('sm'));
+  const { data: agentVersions, mutate: refreshVersions } = useAgentVersions();
+  const [agentBusy, setAgentBusy] = useState(false);
+  const handleAgentUpdate = async (id?: number) => {
+    setAgentBusy(true);
+    try {
+      const result = await updateAgents(id);
+      const count = Array.isArray(result.queued) ? result.queued.length : result.queued ? 1 : 0;
+      toast.info(
+        `已下发 ${count} 台；等待 Agent 重连上报版本${result.skipped?.length ? `，跳过 ${result.skipped.length} 台` : ''}`
+      );
+      await refreshVersions();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setAgentBusy(false);
+    }
+  };
   const { servers, serversLoading, serversError, refreshServers } = useServers();
 
   const [formOpen, setFormOpen] = useState(false);
@@ -95,6 +115,23 @@ export function ServersListView() {
   }, [deleting, refreshServers]);
 
   const columns: GridColDef<ServerItem>[] = [
+    {
+      field: 'agent_version',
+      headerName: 'Agent 版本',
+      width: 190,
+      sortable: false,
+      renderCell: ({ row }) => {
+        const current = agentVersions?.servers.find((item) => item.id === row.id);
+        return (
+          <Box sx={{ display: 'flex', gap: 1, height: 1, alignItems: 'center' }}>
+            <Typography variant="body2">
+              {current?.version || row.host?.agent_version || '—'}
+            </Typography>
+            {current?.update_available && <Label color="warning">可更新</Label>}
+          </Box>
+        );
+      },
+    },
     {
       field: 'name',
       headerName: '名称',
@@ -205,6 +242,17 @@ export function ServersListView() {
       disableColumnMenu: true,
       getActions: (params) => [
         <CustomGridActionsCellItem
+          key="agent-update"
+          showInMenu
+          icon={<Iconify icon="solar:settings-bold" />}
+          label="更新 Agent"
+          disabled={
+            agentBusy ||
+            !agentVersions?.servers.find((item) => item.id === params.row.id)?.update_available
+          }
+          onClick={() => handleAgentUpdate(params.row.id)}
+        />,
+        <CustomGridActionsCellItem
           key="detail"
           showInMenu
           icon={<Iconify icon="solar:eye-bold" />}
@@ -257,6 +305,20 @@ export function ServersListView() {
         sx={{ mb: 3 }}
       />
 
+      <Box sx={{ mb: 2, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 2 }}>
+        <Typography variant="body2" color="text.secondary">
+          当前 Agent 发布版：{agentVersions?.version || '暂无稳定版'}；未声明更新支持的旧 Agent
+          请手动重装。
+        </Typography>
+        <Button
+          variant="outlined"
+          loading={agentBusy}
+          disabled={!agentVersions?.servers.some((item) => item.update_available)}
+          onClick={() => handleAgentUpdate()}
+        >
+          更新全部可更新节点
+        </Button>
+      </Box>
       {serversError && (
         <Alert severity="error" sx={{ mb: 3 }}>
           {getErrorMessage(serversError)}
@@ -267,6 +329,19 @@ export function ServersListView() {
         <DataGrid
           rows={servers}
           columns={columns}
+          columnVisibilityModel={
+            small
+              ? {
+                  agent_version: false,
+                  region: false,
+                  group_name: false,
+                  tags: false,
+                  expire_at: false,
+                  price: false,
+                  traffic_limit: false,
+                }
+              : {}
+          }
           loading={serversLoading}
           rowHeight={64}
           getRowId={(row) => row.id}

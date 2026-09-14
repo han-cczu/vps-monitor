@@ -83,8 +83,8 @@ func (d *Deps) validateSetting(key string, raw json.RawMessage) error {
 			return fmt.Errorf("订阅模板验证器未装配")
 		}
 	case "alert.cooldown_minutes":
-		if json.Unmarshal(raw, &n) != nil || n < 1 || n > 10080 {
-			return fmt.Errorf("冷却时间须为1–10080分钟")
+		if json.Unmarshal(raw, &n) != nil || n < 0 || n > 10080 {
+			return fmt.Errorf("冷却时间须为0–10080分钟")
 		}
 	default:
 		if json.Unmarshal(raw, &n) != nil || n < 1 || n > 3650 {

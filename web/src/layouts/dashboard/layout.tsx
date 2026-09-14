@@ -7,7 +7,10 @@ import { useBoolean } from 'minimal-shared/hooks';
 
 import Box from '@mui/material/Box';
 import { useTheme } from '@mui/material/styles';
+import Typography from '@mui/material/Typography';
 import { iconButtonClasses } from '@mui/material/IconButton';
+
+import { useSiteSettings } from 'src/api/settings';
 
 import { Logo } from 'src/components/logo';
 import { useSettingsContext } from 'src/components/settings';
@@ -52,6 +55,7 @@ export function DashboardLayout({
   const theme = useTheme();
 
   const { user } = useAuthContext();
+  const { data: siteSettings } = useSiteSettings();
 
   const settings = useSettingsContext();
 
@@ -107,6 +111,9 @@ export function DashboardLayout({
             checkPermissions={canDisplayItemByRole}
           />
 
+          <Typography variant="subtitle1" noWrap sx={{ maxWidth: { xs: 130, sm: 300 } }}>
+            {siteSettings?.['site.title'] ?? 'VPS Monitor'}
+          </Typography>
           {/** @slot Logo */}
           {isNavHorizontal && (
             <Logo
