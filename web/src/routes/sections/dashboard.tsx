@@ -23,6 +23,7 @@ const ProxyPage = lazy(() => import('src/pages/dashboard/proxy'));
 const SubscribersPage = lazy(() => import('src/pages/dashboard/subscribers'));
 const AlertsPage = lazy(() => import('src/pages/dashboard/alerts'));
 const PingTasksPage = lazy(() => import('src/pages/dashboard/settings/ping-tasks'));
+const CoreFilesPage = lazy(() => import('src/pages/dashboard/settings/corefiles'));
 const SettingsAccountPage = lazy(() => import('src/pages/dashboard/settings/account'));
 
 // ----------------------------------------------------------------------
@@ -70,6 +71,7 @@ export const dashboardRoutes: RouteObject[] = [
           { index: true, element: <Navigate to={paths.dashboard.settings.account} replace /> },
           { path: 'account', element: <SettingsAccountPage /> },
           { path: 'ping-tasks', element: <PingTasksPage /> },
+          { path: 'corefiles', element: <CoreFilesPage /> },
         ],
       },
     ],

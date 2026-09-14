@@ -68,12 +68,12 @@
 
 ## 6. 验收标准
 
-- [ ] 工作流手动触发成功，Release 里有两架构文件与 SHA256SUMS；`version` 输出含 `with_v2ray_api`
-- [ ] 面板上传两架构、设为当前；`current-local` 可在容器内执行 `version`
-- [ ] 用 agent token `curl` 下载接口拿到文件，sha256 与 SUMS 一致；错误 token 401
-- [ ] 删除当前版本被拒绝；架构不全时"设为当前"被拒绝
-- [ ] `docs/verify/sing-box-stats.md` 写明验证结论（通过），并附计数器样例输出
-- [ ] `docs/core-version.md` 写明钉定版本与标签
+- [ ] 工作流手动触发成功，Release 里有两架构文件与 SHA256SUMS；`version` 输出含 `with_v2ray_api`。**当前没有 remote，工作流与 Release 未触发。两架构已本地交叉编译，amd64 运行通过，ARM64 真机执行待补。**
+- [x] 面板上传两架构、设为当前；`current-local` 可在 distroless 容器内执行 `version`
+- [x] 用 agent token 下载接口拿到文件，sha256 与 SUMS 一致；错误 token 401（本轮 HTTP 客户端使用 PowerShell 与 Go）
+- [x] 删除当前版本被拒绝；架构不全时"设为当前"被拒绝
+- [x] `docs/verify/sing-box-stats.md` 写明验证结论（Linux amd64 容器通过），并附计数器原始输出；**海外节点验证待补**
+- [x] `docs/core-version.md` 写明钉定版本与标签
 
 ## 7. 风险与注意
 
@@ -87,4 +87,24 @@
 
 ## 9. 偏离记录
 
-（开工前为空）
+1. 核对最新稳定版后钉定 v1.14.0 与源码提交 0b8995879f29a9b98ee027bc17b75e101445b238。标签仍为 with_quic,with_utls,with_v2ray_api；没有 with_reality_server。
+2. 工作流使用两个原生 runner，避免直接在 x86 上执行 ARM64 产物；两个架构都运行双用户统计验证才允许发布。Release 额外提供对应源码归档和许可证，重跑不覆盖既有 Release。
+3. 增加 manifest.json 作为发布边界；二进制先写临时文件、流式校验 SHA256 / Go buildinfo / ELF 后发布。同版本同架构不可覆盖，相同 SHA256 重传幂等；单文件最多 64 MiB。
+4. 使用 os.Root 约束目录访问，版本只接受稳定 tag 形式，架构只接受 amd64/arm64。上传不执行二进制；trimpath 产物不含 ldflags，实际版本号由工作流的 version 输出确认，不能声称上传端能证明版本标签与内部版本一致。
+5. 当前版本持久化在 settings，current-local 是派生文件。启动根据设置重建，设为当前时验证两个文件完整性；写库失败不切换，替换失败回滚设置。支持 Windows 管理 Linux 构建，但本地执行预检只面向 Linux 部署。
+6. 可选 URL 获取收窄到公开的 HTTPS GitHub Release 文件，仅允许 GitHub 及其 Release 资产域名重定向，不支持任意 URL 或私有仓库 Token。下载与上传共用校验，两路并发、两分钟时限。
+7. 提取 auth.AgentMiddleware，WS 与下载端点共用现有 token 语义。下载支持 SHA256 ETag、校验和响应头和 Range；每次请求先鉴权，重置或删除节点后旧 token 失效。
+8. 用独立 Go 验证程序代替 grpcurl，避免服务端反射依赖；真实 RPC 服务名是 v2ray.core.app.stats.command.StatsService，不能照抄 proto 的 package。工具独立于业务模块，原始结果保存在 docs/verify/。
+9. 没有提供海外测试节点，本轮在网络隔离的 Linux amd64 容器中完成真实 SS2022 双用户各 100 MB 下载、用户隔离、入站汇总和 reset 验证。ARM64 执行和公网链路不在已验范围。
+
+## 10. 本地验收记录（2026-09-14）
+
+- 独立 distroless 面板绑定 127.0.0.1:19092，独立数据库，原有 8080/9000 服务未改动。
+- 浏览器上传 amd64（40243362 字节）和 arm64（37486754 字节），单架构时按钮禁用，补齐后切换成功，当前版本删除按钮禁用；容器执行 current-local version 输出 1.14.0 与所需三个标签。
+- Agent Token HTTP 下载 amd64：200，文件 SHA256 与原始构建及 X-Checksum-Sha256 一致；Go 集成测试验证未登录/JWT 冒充 Agent/错误与撤销 Token 的 401、Range 206、ETag 304。
+- 存储测试验证损坏校验和、错误架构、缺标签、非 ELF、超限、取消、并发发布、不可覆盖、删除保护、设置写入失败、文件替换失败回滚、启动重建。
+- 浏览器确认 400px 列表与表单无页面横向溢出；非 GitHub URL 显示来源限制错误；确认框关闭时不再闪出空版本文字。
+- 停机后把测试 current-local 替换为无效内容，再启动面板：根据已选版本自动恢复，SHA256 与原始 amd64 一致，version 可执行，页面仍显示当前版本。
+- Go vet / 三模块测试、独立统计工具 vet、npm test / tsc / ESLint / 生产构建通过；工作流 YAML 与 actionlint v1.7.7 静态检查通过。最终页面无新增浏览器错误；构建保留原有大 chunk 提示。
+- 本轮未运行 CGO 竞态检查；原生 Windows 仍缺少相应 C 编译器。该限制与 ARM64、公网、远端工作流待验项分别记录。
+- 双用户统计及 raw JSON 见 docs/verify/sing-box-stats.md；没有伪造海外或 ARM64 运行结果。

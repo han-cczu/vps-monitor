@@ -395,3 +395,26 @@ Agent 上报：
 结果每 5 秒一个事务落库，失败批次放回队列等待重试；已经删除的任务/节点结果跳过，不使整批回滚。待写队列最多 100000 条，超出时丢弃最老结果并记 ERROR。正常关闭会等待最后一次写入，强制杀进程仍可能丢失尚未落库的数据。
 
 启动先清理过期结果并预热窗口；首次 recent 请求会把数据库完整 30 点与已到达的新结果合并，`n` 仅裁剪响应。保留期由 `retention.ping_days` 控制，默认 30 天，有效范围 1–3650；每小时清理。
+
+## 6. 核心构建托管（步骤 10）
+
+管理员接口使用 JWT，下载接口使用节点 Agent Token。两种凭据不互通。
+
+| 方法与路径 | 请求 / 响应 |
+|---|---|
+| `GET /api/corefiles` | `{versions:[{version,arches,files,uploaded_at,current}],pinned_version}` |
+| `POST /api/corefiles` | multipart：version、arch、sha256、file，每次一个文件；201 `{version,file}` |
+| `POST /api/corefiles/fetch` | JSON `{version,arch,sha256,url}`；从公开 GitHub Release 获取；201 `{version,file}` |
+| `PUT /api/corefiles/current` | JSON `{version}`；200 `{version}`，两个架构须齐全且校验通过 |
+| `DELETE /api/corefiles/{version}` | 204；当前版本返回 409 |
+| `GET /api/agent/corefiles/{version}/{arch}` | Agent Bearer Token；文件流，支持 Range / If-None-Match |
+
+版本必须是 `vMAJOR.MINOR.PATCH` 稳定标签形式，单段最多四位数字；架构为 amd64 或 arm64。`files` 中每项为 `{arch,sha256,size,uploaded_at}`，时间为 Unix 秒；sha256 为小写十六进制。文件上限 64 MiB，超出返回 413；损坏校验和、错误构建标签或 ELF 架构返回 400；同版本同架构内容冲突或架构不全返回 409；缺失文件为 404。
+
+下载的 `ETag` 为带双引号的 SHA256，`X-Checksum-Sha256` 为同一值（不带引号），`Cache-Control: private, no-cache`。条件命中 304、范围请求 206 都先验证 Agent Token。Token 重置和节点删除立即影响后续下载。
+
+目录是 `{DataDir}/corefiles/{version}/sing-box-linux-{arch}`、`SHA256SUMS`、`manifest.json`。校验后原子发布清单；版本架构内容不可变，同 SHA256 重传幂等。当前版本保存在 `settings['core.current_version']` 的 JSON 字符串，`current-local` 是与面板 CPU 架构一致的 Linux 静态二进制，模式 0755。启动按设置重建派生文件；缺失或损坏的当前核心会使恢复失败并记录错误。
+
+URL 获取只接受 `https://github.com/{owner}/{repo}/releases/download/{tag}/{file}`，允许重定向到 GitHub Release 资产域名，不转发管理员或 Agent 凭据。传输最多两个并发、两分钟超时。上传只读 buildinfo/ELF，不运行核心，不向在线节点发送升级命令。
+
+新增审计 action：`corefile.upload`、`corefile.fetch`、`corefile.set_current`、`corefile.delete`；target_type 为 `corefile`，记录版本和产物元数据，不记录下载签名 URL 或凭据。

@@ -1,0 +1,76 @@
+{
+  "version_output": "sing-box version 1.14.0\n\nEnvironment: go1.26.2 linux/amd64\nTags: with_quic,with_utls,with_v2ray_api\nRevision: 0b8995879f29a9b98ee027bc17b75e101445b238\nCGO: disabled\n",
+  "grpc_method": "/v2ray.core.app.stats.command.StatsService/QueryStats",
+  "bytes_per_user": 100000000,
+  "after_u1": [
+    {
+      "name": "inbound\u003e\u003e\u003ess-in\u003e\u003e\u003etraffic\u003e\u003e\u003edownlink",
+      "value": 100000142
+    },
+    {
+      "name": "inbound\u003e\u003e\u003ess-in\u003e\u003e\u003etraffic\u003e\u003e\u003euplink",
+      "value": 115
+    },
+    {
+      "name": "user\u003e\u003e\u003eu1\u003e\u003e\u003etraffic\u003e\u003e\u003edownlink",
+      "value": 100000142
+    },
+    {
+      "name": "user\u003e\u003e\u003eu1\u003e\u003e\u003etraffic\u003e\u003e\u003euplink",
+      "value": 115
+    }
+  ],
+  "before_reset": [
+    {
+      "name": "inbound\u003e\u003e\u003ess-in\u003e\u003e\u003etraffic\u003e\u003e\u003edownlink",
+      "value": 200000284
+    },
+    {
+      "name": "inbound\u003e\u003e\u003ess-in\u003e\u003e\u003etraffic\u003e\u003e\u003euplink",
+      "value": 230
+    },
+    {
+      "name": "user\u003e\u003e\u003eu1\u003e\u003e\u003etraffic\u003e\u003e\u003edownlink",
+      "value": 100000142
+    },
+    {
+      "name": "user\u003e\u003e\u003eu1\u003e\u003e\u003etraffic\u003e\u003e\u003euplink",
+      "value": 115
+    },
+    {
+      "name": "user\u003e\u003e\u003eu2\u003e\u003e\u003etraffic\u003e\u003e\u003edownlink",
+      "value": 100000142
+    },
+    {
+      "name": "user\u003e\u003e\u003eu2\u003e\u003e\u003etraffic\u003e\u003e\u003euplink",
+      "value": 115
+    }
+  ],
+  "after_reset": [
+    {
+      "name": "inbound\u003e\u003e\u003ess-in\u003e\u003e\u003etraffic\u003e\u003e\u003edownlink",
+      "value": 0
+    },
+    {
+      "name": "inbound\u003e\u003e\u003ess-in\u003e\u003e\u003etraffic\u003e\u003e\u003euplink",
+      "value": 0
+    },
+    {
+      "name": "user\u003e\u003e\u003eu1\u003e\u003e\u003etraffic\u003e\u003e\u003edownlink",
+      "value": 0
+    },
+    {
+      "name": "user\u003e\u003e\u003eu1\u003e\u003e\u003etraffic\u003e\u003e\u003euplink",
+      "value": 0
+    },
+    {
+      "name": "user\u003e\u003e\u003eu2\u003e\u003e\u003etraffic\u003e\u003e\u003edownlink",
+      "value": 0
+    },
+    {
+      "name": "user\u003e\u003e\u003eu2\u003e\u003e\u003etraffic\u003e\u003e\u003euplink",
+      "value": 0
+    }
+  ],
+  "passed": true
+}

@@ -28,6 +28,7 @@ import (
 	"vpsmon/server/internal/auth"
 	"vpsmon/server/internal/clock"
 	"vpsmon/server/internal/config"
+	"vpsmon/server/internal/corefiles"
 	"vpsmon/server/internal/hub"
 	"vpsmon/server/internal/metrics"
 	"vpsmon/server/internal/ping"
@@ -225,6 +226,14 @@ func run() error {
 	}
 
 	limiter := auth.NewLimiter(auth.DefaultMaxFailures, auth.DefaultWindow, auth.DefaultLockout)
+	cores, err := corefiles.New(filepath.Join(cfg.DataDir, "corefiles"), db)
+	if err != nil {
+		return err
+	}
+	defer cores.Close()
+	if err := cores.Reconcile(ctx); err != nil {
+		return fmt.Errorf("restore current core: %w", err)
+	}
 	go limiter.Run(ctx, time.Minute)
 
 	realtime := hub.New(db, tokens)
@@ -266,6 +275,7 @@ func run() error {
 		PublicURL:      cfg.PublicURL,
 		Hub:            realtime,
 		Ping:           pings,
+		CoreFiles:      cores,
 	})
 
 	srv := &http.Server{

@@ -446,3 +446,31 @@ sqlite3 ./data/vm.db "INSERT INTO settings (key,value) VALUES ('retention.ping_d
 启动和每小时清理过期结果。队列超过 100000 条时会丢弃最老的待写结果并记录 ERROR；持续数据库错误应优先处理，重试不等于持久化保证。
 
 本地自动化：`go vet ./proto/... ./agent/... ./server/...`、`go test ./proto/... ./agent/... ./server/...`；在 web 目录运行 `npm test`、`npm run tsc:check`、`npm run lint`、`npm run build`。前端测试使用 Node 24 自带测试运行器，没有额外测试依赖。竞态检测可在具备 CGO/C 编译器的环境运行 `go test -race ./agent/internal/ping ./server/internal/ping ./server/internal/hub`。
+
+## 核心构建与版本管理（步骤 10）
+
+当前钉定 sing-box v1.14.0，源码和标签约定见 [core-version.md](core-version.md)。运行本仓库 `sing-box` 工作流，输入稳定 tag。产出 amd64、arm64 两个 Linux 静态文件及 SHA256SUMS、许可证、对应源码；两架构的 version 与真实双用户统计测试通过才会发布 Release。
+
+在「设置 → 代理核心」分别上传两架构文件，或输入公开 GitHub Release 文件链接下载；同时填写该次构建的 SHA256SUMS 对应值。官方默认包缺少 V2Ray API 标签，不能代替本项目构建产物。每个文件最多 64 MiB；同版本同架构不能换内容，要重建时应使用新的版本标识，或先删除未使用版本再重新上传。
+
+两个架构齐全后点击「设为当前」并确认。面板复制本机 CPU 架构文件为 `/data/corefiles/current-local`，不会自动安装或升级节点；该操作属于后续第 11/14 步。Linux distroless 部署可验证：
+
+```sh
+docker compose exec server /data/corefiles/current-local version
+```
+
+Agent 下载请求需要 `Authorization: Bearer <agent token>`；校验返回头 `X-Checksum-Sha256` 与下载文件一致。不能用管理员 JWT 代替 Agent Token。支持断点续传与 ETag；重置 Token 后旧凭据不可继续下载。
+
+数据库里的 `core.current_version` 是当前版本依据；每次启动按它恢复 current-local。备份数据库后，也应保留当前核心的版本目录（或同一次构建的 Release 资产与 SUMS）。只恢复数据库而没有对应核心时，启动会报告 `restore current core` 错误；先恢复整个版本目录再启动。需要撤销选择时，可在停机状态将设置的 JSON 值设为 `""`，再启动面板重新上传，不能只修改 current-local。
+
+| 现象 | 处理 |
+|---|---|
+| SHA256 不匹配 | 检查是否选错架构、下载不完整，或混用了不同构建的 SUMS |
+| 缺少标签 / 不是 Linux 静态文件 | 用文档中的自编译命令或本仓库工作流重新构建 |
+| 同版本不能覆盖 | 当前资产不可变；切换到另一个完整版本后，才可删除旧版本 |
+| 架构不全 | 补上传 amd64、arm64；只有一份时不能设为当前 |
+| URL 被拒绝 | 使用公开 GitHub Release 文件链接；其他来源先在本地下载再上传 |
+| 502 / 超时 | 检查面板到 GitHub 的连通性；当前接口不支持私有 Release 凭据 |
+| Windows 下不能执行 current-local | 托管的是 Linux 核心，执行验证使用 Linux 容器或 Linux 面板 |
+
+每用户统计复验使用 `ci/sing-box-stats`，完整命令与真实结果见 [验证记录](verify/sing-box-stats.md)。

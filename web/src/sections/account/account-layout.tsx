@@ -19,6 +19,11 @@ import { CustomBreadcrumbs } from 'src/components/custom-breadcrumbs';
 // 设置共享导航；TOTP 在步骤 20 加进来。
 const NAV_ITEMS = [
   {
+    label: '代理核心',
+    href: paths.dashboard.settings.corefiles,
+    icon: <Iconify width={24} icon="solar:list-bold" />,
+  },
+  {
     label: 'Ping 任务',
     href: paths.dashboard.settings.pingTasks,
     icon: <Iconify width={24} icon="solar:list-bold" />,
@@ -41,12 +46,15 @@ export function AccountLayout({ children, ...other }: DashboardContentProps) {
         heading="设置"
         links={[
           { name: '设置', href: paths.dashboard.settings.root },
-          { name: pathname === paths.dashboard.settings.pingTasks ? 'Ping 任务' : '账号' },
+          {
+            name:
+              NAV_ITEMS.find((item) => item.href === removeLastSlash(pathname))?.label ?? '账号',
+          },
         ]}
         sx={{ mb: 3 }}
       />
 
-      <Tabs value={removeLastSlash(pathname)} sx={{ mb: { xs: 3, md: 5 } }}>
+      <Tabs variant="scrollable" value={removeLastSlash(pathname)} sx={{ mb: { xs: 3, md: 5 } }}>
         {NAV_ITEMS.map((tab) => (
           <Tab
             component={RouterLink}

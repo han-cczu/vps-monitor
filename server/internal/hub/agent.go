@@ -3,7 +3,6 @@ package hub
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -119,21 +118,11 @@ func (h *AgentHub) SetConfigBuilder(fn func(serverID int64) any) {
 
 // ServeHTTP 处理 agent 的 WebSocket 接入。
 func (h *AgentHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	token := auth.BearerToken(r.Header.Get("Authorization"))
-	if token == "" {
-		writeUnauthorized(w)
-		return
-	}
+	auth.AgentMiddleware(h.db)(http.HandlerFunc(h.serveAuthenticated)).ServeHTTP(w, r)
+}
 
-	s, err := h.db.FindServerByTokenHash(r.Context(), auth.HashAgentToken(token))
-	if err != nil {
-		if !errors.Is(err, store.ErrNotFound) {
-			slog.Error("agent 鉴权查库失败", "err", err)
-		}
-		// 查库出错也回 401：区分 401 和 500 只会给拿着无效 token 的人多一个信号。
-		writeUnauthorized(w)
-		return
-	}
+func (h *AgentHub) serveAuthenticated(w http.ResponseWriter, r *http.Request) {
+	s := auth.AgentFromContext(r.Context())
 
 	publicIP := audit.ClientIP(r)
 	agentVersion := r.Header.Get("X-Agent-Version")
@@ -490,10 +479,4 @@ func truncate(s string) string {
 		return s
 	}
 	return s[:maxLoggedString] + "…（已截断）"
-}
-
-func writeUnauthorized(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusUnauthorized)
-	_, _ = w.Write([]byte(`{"message":"unauthorized"}`))
 }

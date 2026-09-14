@@ -1,0 +1,116 @@
+name: sing-box
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '稳定版本 tag（当前钉定 v1.14.0）'
+        type: string
+        required: true
+        default: v1.14.0
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sing-box-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      CORE_VERSION: ${{ inputs.version }}
+      CORE_ARCH: ${{ matrix.arch }}
+      CGO_ENABLED: '0'
+      GOWORK: 'off'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: panel
+          persist-credentials: false
+      - name: 校验版本输入
+        shell: bash
+        run: |
+          [[ "$CORE_VERSION" =~ ^v[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$ ]] || exit 1
+      - uses: actions/checkout@v4
+        with:
+          repository: SagerNet/sing-box
+          ref: ${{ inputs.version }}
+          path: source
+          persist-credentials: false
+      - name: 核对钉定源码
+        working-directory: source
+        run: |
+          if [ "$CORE_VERSION" = v1.14.0 ]; then
+            test "$(git rev-parse HEAD)" = 0b8995879f29a9b98ee027bc17b75e101445b238
+          fi
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
+      - name: 编译并在对应架构执行
+        working-directory: source
+        shell: bash
+        run: |
+          mkdir -p ../dist
+          file="../dist/sing-box-${CORE_VERSION}-linux-${CORE_ARCH}"
+          GOOS=linux GOARCH="$CORE_ARCH" go build -trimpath \
+            -tags 'with_quic,with_utls,with_v2ray_api' \
+            -ldflags "-s -w -X github.com/sagernet/sing-box/constant.Version=${CORE_VERSION#v}" \
+            -o "$file" ./cmd/sing-box
+          "$file" version | tee ../version.txt
+          grep -q with_v2ray_api ../version.txt
+          grep -Fx "sing-box version ${CORE_VERSION#v}" ../version.txt
+          test "$(stat -c %s "$file")" -le 67108864
+          if [ "$CORE_ARCH" = amd64 ]; then
+            cp LICENSE ../dist/LICENSE-sing-box
+            git archive --format=tar.gz -o "../dist/source-${CORE_VERSION}.tar.gz" HEAD
+          fi
+      - name: 两用户流量与 reset 验证
+        working-directory: panel/ci/sing-box-stats
+        run: go run . -core "$GITHUB_WORKSPACE/dist/sing-box-${CORE_VERSION}-linux-${CORE_ARCH}" -output "$GITHUB_WORKSPACE/stats-${CORE_ARCH}.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stats-${{ matrix.arch }}
+          path: stats-*.json
+          if-no-files-found: error
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      CORE_VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: core-*
+          merge-multiple: true
+          path: dist
+      - name: 生成校验和并发布
+        working-directory: dist
+        shell: bash
+        run: |
+          test -f "sing-box-${CORE_VERSION}-linux-amd64"
+          test -f "sing-box-${CORE_VERSION}-linux-arm64"
+          sha256sum sing-box-* source-* LICENSE-sing-box > SHA256SUMS
+          # Existing releases are immutable: rerunning cannot overwrite downloaded artifacts.
+          gh release create "sing-box-${CORE_VERSION}" sing-box-* source-* LICENSE-sing-box SHA256SUMS \
+            --target '${{ github.sha }}' --title "sing-box ${CORE_VERSION}" \
+            --notes "Self-built with with_quic,with_utls,with_v2ray_api. Both architectures passed two-user traffic and reset verification."

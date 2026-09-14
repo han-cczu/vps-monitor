@@ -20,6 +20,7 @@ import (
 	"vpsmon/server/internal/audit"
 	"vpsmon/server/internal/auth"
 	"vpsmon/server/internal/config"
+	"vpsmon/server/internal/corefiles"
 	"vpsmon/server/internal/hub"
 	"vpsmon/server/internal/ping"
 	"vpsmon/server/internal/store"
@@ -45,8 +46,10 @@ type Deps struct {
 
 	// Hub 是实时状态中心。为 nil 时两个 WS 端点不注册、REST 里的 online 恒为 false，
 	// 单元测试就是这么跑的（hub 的行为由 hub 包自己的测试覆盖）。
-	Hub  *hub.Hub
-	Ping *ping.Service
+	Hub       *hub.Hub
+	Ping      *ping.Service
+	CoreFiles *corefiles.Store
+	coreSlots chan struct{}
 
 	// verifySem 由 NewRouter 初始化，限制并发密码校验数。
 	verifySem chan struct{}
@@ -56,6 +59,7 @@ type Deps struct {
 func NewRouter(deps Deps) http.Handler {
 	d := &deps
 	d.verifySem = make(chan struct{}, maxConcurrentVerify)
+	d.coreSlots = make(chan struct{}, 2)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -86,6 +90,7 @@ func NewRouter(deps Deps) http.Handler {
 			api.Method(http.MethodGet, "/agent/ws", d.Hub.AgentHandler())
 			api.Method(http.MethodGet, "/ws", d.Hub.ClientHandler())
 		}
+		api.With(auth.AgentMiddleware(d.DB)).Get("/agent/corefiles/{version}/{arch}", d.downloadCoreFile)
 
 		api.Group(func(protected chi.Router) {
 			protected.Use(d.Tokens.Middleware)
@@ -105,6 +110,11 @@ func NewRouter(deps Deps) http.Handler {
 			protected.Delete("/ping-tasks/{id}", d.deletePingTask)
 			protected.Get("/servers/{id}/ping/recent", d.pingRecent)
 			protected.Get("/servers/{id}/ping/history", d.pingHistory)
+			protected.Get("/corefiles", d.listCoreFiles)
+			protected.Post("/corefiles", d.coreTransfer(d.uploadCoreFile))
+			protected.Post("/corefiles/fetch", d.coreTransfer(d.fetchCoreFile))
+			protected.Put("/corefiles/current", d.setCurrentCore)
+			protected.Delete("/corefiles/{version}", d.deleteCoreVersion)
 		})
 
 		api.NotFound(func(w http.ResponseWriter, _ *http.Request) {
