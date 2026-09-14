@@ -18,9 +18,13 @@ const (
 
 // Event 是总线上的一条事件。
 type Event struct {
-	Kind     EventKind
-	ServerID int64
-	At       time.Time
+	Kind       EventKind
+	ServerID   int64
+	At         time.Time
+	TargetType string
+	TargetID   int64
+	Threshold  int
+	Message    string
 }
 
 // Bus 是一个极简的事件总线：发布者不阻塞，订阅者各拿一条带缓冲的通道。

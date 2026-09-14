@@ -10,6 +10,33 @@ import (
 	"vpsmon/server/internal/store"
 )
 
+func TestStatsCountModeOnlyAffectsFutureDeltas(t *testing.T) {
+	r, _, db, _, node, _, u := reconcileSetup(t)
+	ctx := context.Background()
+	for index, mode := range []string{"sum", "download", "sum"} {
+		if err := db.SetSetting(ctx, "enforce.count_mode", mode); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.Stats.Ingest(ctx, node, proto.CoreStats{Type: proto.TypeCoreStats, Users: []proto.Counter{{Name: fmt.Sprintf("sub-%d", u.ID), Up: 10, Down: 20}}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.Stats.Flush(ctx); err != nil {
+			t.Fatal(err)
+		}
+		got, err := db.Proxy().Subscriber(ctx, u.ID)
+		if want := []int64{30, 50, 80}[index]; err != nil || got.TrafficUsed != want {
+			t.Fatalf("mode=%s got=%+v want=%d err=%v", mode, got, want, err)
+		}
+	}
+	var up, down int64
+	if err := db.QueryRow("SELECT up_bytes,down_bytes FROM subscriber_traffic WHERE subscriber_id=?", u.ID).Scan(&up, &down); err != nil {
+		t.Fatal(err)
+	}
+	if up != 30 || down != 60 {
+		t.Fatalf("raw counters changed: %d/%d", up, down)
+	}
+}
+
 func TestStatsAccountingResetAndFailureRecovery(t *testing.T) {
 	r, s, db, _, id, i, sub := reconcileSetup(t)
 	ctx := context.Background()

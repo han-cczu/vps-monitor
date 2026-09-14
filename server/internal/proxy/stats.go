@@ -2,6 +2,9 @@ package proxy
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -168,6 +171,20 @@ func (s *Stats) Flush(ctx context.Context) error {
 		return nil
 	}
 	err := s.db.WithProxyTx(ctx, func(q store.ProxyQueries) error {
+		mode := "sum"
+		var raw string
+		settingErr := q.DB.QueryRowContext(ctx, "SELECT value FROM settings WHERE key='enforce.count_mode'").Scan(&raw)
+		if settingErr != nil && !errors.Is(settingErr, sql.ErrNoRows) {
+			return settingErr
+		}
+		if settingErr == nil {
+			if err := json.Unmarshal([]byte(raw), &mode); err != nil {
+				return err
+			}
+			if mode != "sum" && mode != "download" {
+				return fmt.Errorf("invalid enforce.count_mode")
+			}
+		}
 		for k, v := range batch {
 			// A reset or period change invalidates samples captured before it. Deleting
 			// a node preserves already accepted usage; deleting the subscriber does not.
@@ -186,27 +203,13 @@ func (s *Stats) Flush(ctx context.Context) error {
     ON CONFLICT(subscriber_id,date) DO UPDATE SET up_bytes=MIN(?,up_bytes+excluded.up_bytes),down_bytes=MIN(?,down_bytes+excluded.down_bytes)`, k.user, k.date, v.up, v.down, maxTraffic, maxTraffic); err != nil {
 				return err
 			}
-			// Compute the aggregate with saturated integer addition, avoiding SQLite's
-			// integer SUM overflow and preserving exact byte counts below the API limit.
-			rows, err := q.DB.QueryContext(ctx, "SELECT up_bytes,down_bytes FROM subscriber_traffic WHERE subscriber_id=? AND period_start=?", k.user, k.period)
-			if err != nil {
-				return err
+			// Charge only this committed delta. Re-aggregating historical raw counters
+			// would retroactively change bills when count_mode is edited.
+			counted := v.down
+			if mode == "sum" {
+				counted = addTraffic(counted, v.up)
 			}
-			var total int64
-			for rows.Next() {
-				var up, down int64
-				if err = rows.Scan(&up, &down); err != nil {
-					rows.Close()
-					return err
-				}
-				total = addTraffic(addTraffic(total, up), down)
-			}
-			err = rows.Err()
-			rows.Close()
-			if err != nil {
-				return err
-			}
-			if _, err = q.DB.ExecContext(ctx, "UPDATE subscribers SET traffic_used=? WHERE id=?", total, k.user); err != nil {
+			if _, err := q.DB.ExecContext(ctx, "UPDATE subscribers SET traffic_used=MIN(?,traffic_used+?) WHERE id=?", maxTraffic, counted, k.user); err != nil {
 				return err
 			}
 		}

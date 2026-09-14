@@ -38,6 +38,7 @@ type ReconcilerOptions struct {
 	Artifact     func(context.Context, string, string) (corefiles.Artifact, error)
 	Publish      func(int64, CoreSummary)
 	Failed       func(int64)
+	AfterStats   func(context.Context) error
 	Debounce     time.Duration
 	ApplyTimeout time.Duration
 	LogTimeout   time.Duration
@@ -164,6 +165,11 @@ func (r *Reconciler) NodeChanged(id int64, reason string) {
 	})
 }
 func (r *Reconciler) Run(ctx context.Context) {
+	if r.options.AfterStats != nil {
+		if err := r.options.AfterStats(ctx); err != nil {
+			slog.Error("启动订阅策略检查失败", "err", err)
+		}
+	}
 	r.refreshAll(ctx)
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
@@ -175,6 +181,10 @@ func (r *Reconciler) Run(ctx context.Context) {
 		case <-ticker.C:
 			if err := r.Stats.Flush(ctx); err != nil {
 				slog.Error("代理流量落库失败，保留重试", "err", err)
+			} else if r.options.AfterStats != nil {
+				if err := r.options.AfterStats(ctx); err != nil {
+					slog.Error("订阅策略检查失败", "err", err)
+				}
 			}
 			r.refreshAll(ctx)
 		}

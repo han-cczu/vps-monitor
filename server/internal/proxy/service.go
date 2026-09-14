@@ -17,7 +17,9 @@ import (
 	"vpsmon/server/internal/audit"
 	"vpsmon/server/internal/auth"
 	"vpsmon/server/internal/clock"
+	"vpsmon/server/internal/hub"
 	"vpsmon/server/internal/proxy/certs"
+	"vpsmon/server/internal/proxy/enforce"
 	"vpsmon/server/internal/store"
 )
 
@@ -32,6 +34,7 @@ type Service struct {
 	db       *store.DB
 	notifier Notifier
 	now      func() time.Time
+	Events   func(hub.Event)
 }
 
 func New(db *store.DB, n Notifier) *Service {
@@ -141,10 +144,26 @@ func (s *Service) Inbound(ctx context.Context, id int64) (*store.Inbound, error)
 	return s.db.Proxy().Inbound(ctx, id)
 }
 func (s *Service) Subscribers(ctx context.Context) ([]*store.Subscriber, error) {
-	return s.db.Proxy().Subscribers(ctx)
+	users, err := s.db.Proxy().Subscribers(ctx)
+	for _, user := range users {
+		enforce.Decorate(user, s.now(), s.now().Location())
+	}
+	return users, err
 }
 func (s *Service) Subscriber(ctx context.Context, id int64) (*store.Subscriber, error) {
-	return s.db.Proxy().Subscriber(ctx, id)
+	user, err := s.db.Proxy().Subscriber(ctx, id)
+	enforce.Decorate(user, s.now(), s.now().Location())
+	return user, err
+}
+
+func (s *Service) publishPolicy(events []hub.Event, result *store.Subscriber) {
+	if s.Events != nil {
+		for _, event := range events {
+			s.Events(event)
+		}
+	}
+	now := s.now()
+	enforce.Decorate(result, now, now.Location())
 }
 func (s *Service) Cert(ctx context.Context, serverID int64) (*certs.Cert, error) {
 	q := s.db.Proxy()

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"vpsmon/server/internal/hub"
 	"vpsmon/server/internal/proxy/keys"
 	"vpsmon/server/internal/store"
 )
@@ -28,6 +29,7 @@ func credentials(s *store.Subscriber) {
 }
 func (s *Service) SaveSubscriber(ctx context.Context, id int64, in SubscriberInput) (*store.Subscriber, error) {
 	var result *store.Subscriber
+	var events []hub.Event
 	err := s.db.WithProxyTx(ctx, func(q store.ProxyQueries) error {
 		var before *store.Subscriber
 		now := s.now()
@@ -90,7 +92,17 @@ func (s *Service) SaveSubscriber(ctx context.Context, id int64, in SubscriberInp
 			}
 		}
 		sub.UpdatedAt = now.Unix()
+		// Assign a new ID before policy audit records are created; the transaction
+		// remains atomic, so no unevaluated subscriber becomes visible.
 		if err := q.SaveSubscriber(ctx, &sub); err != nil {
+			return err
+		}
+		var err error
+		events, err = policyEvents(ctx, q, before, &sub, now)
+		if err != nil {
+			return err
+		}
+		if err = q.SaveSubscriber(ctx, &sub); err != nil {
 			return err
 		}
 		action := "subscriber.update"
@@ -105,6 +117,7 @@ func (s *Service) SaveSubscriber(ctx context.Context, id int64, in SubscriberInp
 	})
 	if err == nil {
 		s.notify(nodeIDs(result), "subscriber.changed")
+		s.publishPolicy(events, result)
 	}
 	return result, err
 }
@@ -169,6 +182,7 @@ func (s *Service) Assign(ctx context.Context, id int64, inboundIDs []int64) (*st
 	})
 	if err == nil {
 		s.notify(changed, "assignment.update")
+		s.publishPolicy(nil, result)
 	}
 	return result, err
 }
@@ -177,6 +191,7 @@ func (s *Service) SubscriberAction(ctx context.Context, id int64, action string)
 		return nil, invalid(fmt.Errorf("不支持的订阅用户操作"))
 	}
 	var result *store.Subscriber
+	var events []hub.Event
 	err := s.db.WithProxyTx(ctx, func(q store.ProxyQueries) error {
 		before, err := q.Subscriber(ctx, id)
 		if err != nil {
@@ -190,14 +205,18 @@ func (s *Service) SubscriberAction(ctx context.Context, id int64, action string)
 			credentials(&sub)
 		case "reset-usage":
 			sub.TrafficUsed = 0
-			if sub.AutoDisabled == "quota" {
-				sub.AutoDisabled = "none"
-			}
+			sub.Warn80Sent = false
 			if err = q.ClearCurrentUsage(ctx, &sub); err != nil {
 				return err
 			}
 		}
 		sub.UpdatedAt = s.now().Unix()
+		if action == "reset-usage" {
+			events, err = policyEvents(ctx, q, before, &sub, s.now())
+			if err != nil {
+				return err
+			}
+		}
 		if err = q.SaveSubscriber(ctx, &sub); err != nil {
 			return err
 		}
@@ -209,6 +228,9 @@ func (s *Service) SubscriberAction(ctx context.Context, id int64, action string)
 	})
 	if err == nil && action != "reset-token" {
 		s.notify(nodeIDs(result), "subscriber."+action)
+	}
+	if err == nil {
+		s.publishPolicy(events, result)
 	}
 	return result, err
 }

@@ -257,8 +257,10 @@ func run() error {
 	// HTTP 收尾后停止接收结果，等待最后一批落库，再关闭数据库。
 	defer func() { stopPing(); <-pingDone }()
 
+	var enforcer *proxy.Enforcer
 	reconciler := proxy.NewReconciler(db, proxy.ReconcilerOptions{
-		Agents: realtime.Agents, Check: cores.CheckConfig,
+		AfterStats: func(ctx context.Context) error { return enforcer.RunOnce(ctx) },
+		Agents:     realtime.Agents, Check: cores.CheckConfig,
 		Artifact: func(ctx context.Context, v, a string) (corefiles.Artifact, error) {
 			f, meta, err := cores.Open(v, a)
 			if f != nil {
@@ -270,6 +272,9 @@ func run() error {
 			realtime.Bus.Publish(hub.Event{Kind: hub.EventCoreApplyFailed, ServerID: id, At: clock.Now()})
 		},
 	})
+	enforcer = proxy.NewEnforcer(db, reconciler, realtime.Bus.Publish)
+	proxyService := proxy.New(db, reconciler)
+	proxyService.Events = realtime.Bus.Publish
 	realtime.Agents.OnCore(reconciler.Handle, reconciler.OnAgentHello)
 	realtime.Registry.SetCoreSource(reconciler.SnapshotFor)
 	proxyCtx, stopProxy := context.WithCancel(context.Background())
@@ -297,7 +302,7 @@ func run() error {
 		Hub:            realtime,
 		Ping:           pings,
 		CoreFiles:      cores,
-		Proxy:          proxy.New(db, reconciler),
+		Proxy:          proxyService,
 		Reconciler:     reconciler,
 	})
 
