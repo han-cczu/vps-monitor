@@ -88,14 +88,14 @@ systemctl restart sing-box
 
 ## 6. 验收标准
 
-- [ ] 单测：`Validate` 各分支；`ports.go` 用固定 `/proc/net/tcp` 样本；`stats.go` 计数器名解析；`apply` 用 fake `systemctl`/`check` 接口覆盖"check 失败"、"重启后端口缺失回滚"、"无 bak 时 stop"三条路径
-- [ ] 测试节点：`core apply --file` 一份合法配置 → sing-box 运行、端口监听、`core state` 显示 applied；改成非法配置再 apply → check 失败、原配置未动、服务仍运行
-- [ ] 把配置里的端口改成被占用端口 → 重启后端口检查失败 → 自动回滚到 `.bak`，服务恢复
-- [ ] `core stats` 在有流量时输出非零增量，连续两次第二次接近零（reset 生效）
+- [x] 单测：`Validate` 各分支；`ports.go` 用固定 `/proc/net/tcp` 样本；`stats.go` 计数器名解析；`apply` 用 fake `systemctl`/`check` 接口覆盖"check 失败"、"重启后端口缺失回滚"、"无 bak 时 stop"三条路径
+- [x] WSL Ubuntu 24.04 / Linux amd64：`core apply --file` 合法配置成功，非法配置 check 失败且原配置和服务保留
+- [x] 真实 TCP 端口占用导致启动失败，恢复 `.bak`，修订号与 SHA256 保持旧值，服务恢复
+- [x] 真实 SS2022 下载 1,000,000 字节后，每用户 down=1,000,117、up=85；第二次查询均为 0
 - [ ] ufw 开启的机器上 apply 后 `ufw status` 出现对应规则
-- [ ] `kill -9` sing-box 进程 → 10 s 内 agent 日志出现状态变更（发送 `core.state running=false`）
-- [ ] 所有外部命令都有超时，不存在的 `systemctl` 报清晰错误而不是挂死
-- [ ] agent 不响应任何未定义消息类型（发一条 `{"type":"exec"}` 只留 warn 日志）
+- [x] 禁用 systemd 自动重启后，`kill -9` 在 9.52 s 被 Agent 轮询发现，日志 running=false；状态发送回调用单测验证。默认 3 s 自动重启可能发生在两次轮询之间，不能保证捕获每次短暂崩溃
+- [x] 外部命令统一 30 s，下载 60 s、RPC 5 s；缺少命令与取消路径单测通过
+- [x] 未定义的 `exec` 消息只留 WARN；严格 schema、操作白名单、4 项等待队列、请求关联与顺序执行测试通过
 
 ## 7. 风险与注意
 
@@ -110,4 +110,21 @@ systemctl restart sing-box
 
 ## 9. 偏离记录
 
-（开工前为空）
+1. 版本统一使用步骤 10 的 `vX.Y.Z`，安装地址为 `/api/agent/corefiles/{version}/{arch}`；`file` 可省略，有值只接受 `sing-box-linux-{本机架构}`。拒绝下载重定向，64 MiB 上限。
+2. 比原方案更严格：revision 不能倒退，同修订号不同 hash 拒绝；同修订号重放要同时验证磁盘配置与端口健康。服务端回滚必须按第 13 步计划产生新修订。Config 按 json.Compact 后 hash；端口限制 1–65535、拒绝重复和前导零。
+3. 配置事务增加 `core-apply.json` 恢复记录与跨进程文件锁，CLI 和 daemon 不会同时修改核心；首次 hello 等待恢复。状态读取未提交事务的旧修订，成功后才清除恢复记录。恢复失败保留记录并报错。
+4. 配置 check 的输出可能带密钥，因此不把 stderr 原文发给面板；只回传步骤和执行错误，最多 2 KiB。诊断可在节点本地执行 check。文件均使用临时文件写入、Sync、原子替换，配置/状态为 0600。
+5. 原型 proto package 为 experimental.v2rayapi，但 v1.14.0 实际注册为 v2ray.core.app.stats.command；生成 schema 已对齐实际服务名，字段号不变。保留来源、许可证和生成命令。根 proto 包仍只导入标准库，生成子包引入 gRPC/protobuf。
+6. 统计离线时不 reset；发送失败缓存当前批次，并在送出前暂停后续 reset。缓存只在内存，RPC reset 到送达之间进程退出仍会损失一批；协议没有应用层 ACK，不能声称精确一次。
+7. CLI 补齐 install/start/stop/restart/logs，apply 的 revision 默认 last+1，也可显式指定。core.stats_address 仅允许回环 IP，默认 127.0.0.1:10085。
+8. 真实测试发现 systemd start-limit-hit 会妨碍快速启停和回滚，显式 start/restart 前只对 sing-box.service 执行 reset-failed。端口健康连续检查三次，检查窗口 5 s。
+9. 普通卸载保留核心状态以便重装接管；--purge-core 才删核心日志、修订与恢复记录。安装脚本 awk 仅更新顶层 server/token，防止破坏嵌套配置。
+10. Linux 冒烟测试使用 WSL systemd 和本地鉴权下载 fixture；没有操作公网 VPS。ufw/firewalld 规则命令与失败回滚经过 fake runner 测试，**真实启用防火墙的节点验收待补**。没有在本机开启或改动防火墙。
+
+## 10. 本地验收证据（2026-09-14）
+
+- `go vet ./proto/... ./agent/... ./server/...` 与三个模块全量 `go test` 通过；Agent/Server 的 `GOWORK=off go test ./...` 也通过。
+- WSL Linux / Go 1.26.2 / GCC：corectl、transport、config、ping 的 `go test -race` 通过；CI 已增加 Agent 并发检查，远端未执行。
+- `npm test`、TypeScript、ESLint 通过。构建与最终核对见 `docs/verify/corectl.md`。
+- `ci/corectl-smoke.py`：真实安装、配置应用、端口冲突回滚、用户统计 reset、日志、启停重启与崩溃轮询通过；原始 JSON 在 `docs/verify/corectl-smoke-amd64.json`。
+- 服务端配置渲染、WS 下发与 core.state/stats 入库属于步骤 13；本步仅接通 Agent 端。ARM64 实机与公网部署未验收。

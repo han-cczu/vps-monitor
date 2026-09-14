@@ -27,8 +27,8 @@ const (
 	writeTimeout    = 5 * time.Second
 	pingInterval    = 20 * time.Second
 	pingTimeout     = 10 * time.Second
-	helloInterval   = 5 * time.Minute // 静态信息定期重发，服务端幂等更新
-	maxMessageBytes = 1 << 20         // 服务端下发的 core.apply 最大也就几十 KB
+	helloInterval   = 5 * time.Minute        // 静态信息定期重发，服务端幂等更新
+	maxMessageBytes = (1 << 20) + (64 << 10) // 1 MiB config + envelope/ports
 
 	minBackoff = time.Second
 	maxBackoff = 60 * time.Second
@@ -50,6 +50,8 @@ type Options struct {
 
 	// OnMessage 收到服务端消息时调用，msgType 已经解出来了。
 	OnMessage func(msgType string, raw []byte)
+	// OnConnect runs after hello is sent; keep it nonblocking.
+	OnConnect func()
 }
 
 // Client 是一个自动重连的 WebSocket 客户端。
@@ -121,13 +123,17 @@ func (c *Client) session(ctx context.Context) (time.Duration, error) {
 	connectedAt := time.Now()
 
 	conn.SetReadLimit(maxMessageBytes)
-	c.setConn(conn)
 	defer c.setConn(nil)
 
 	slog.Info("已连上服务端", "server", c.opts.Server)
 
 	if err := c.write(ctx, conn, c.opts.Hello()); err != nil {
 		return time.Since(connectedAt), fmt.Errorf("发送 hello: %w", err)
+	}
+	// Publish only after hello, so metrics/core reports cannot overtake it.
+	c.setConn(conn)
+	if c.opts.OnConnect != nil {
+		c.opts.OnConnect()
 	}
 
 	go c.pingLoop(ctx, conn)

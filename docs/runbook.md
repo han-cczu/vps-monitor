@@ -149,7 +149,8 @@ systemctl status vps-agent
 journalctl -u vps-agent -f           # 日志是 JSON，一行一条
 vps-agent --once                     # 采集一次打印 JSON 就退出，不联网，用来对数
 vps-agent --version
-bash uninstall.sh                    # 卸载（--purge-core 连 sing-box 一起删，步骤 11 起有用）
+bash uninstall.sh                    # 卸载 agent，保留 sing-box 与核心修订/恢复状态
+bash uninstall.sh --purge-core       # 一并删除 sing-box 服务、二进制、配置、日志和状态
 ```
 
 ## 2. 构建
@@ -453,7 +454,7 @@ sqlite3 ./data/vm.db "INSERT INTO settings (key,value) VALUES ('retention.ping_d
 
 在「设置 → 代理核心」分别上传两架构文件，或输入公开 GitHub Release 文件链接下载；同时填写该次构建的 SHA256SUMS 对应值。官方默认包缺少 V2Ray API 标签，不能代替本项目构建产物。每个文件最多 64 MiB；同版本同架构不能换内容，要重建时应使用新的版本标识，或先删除未使用版本再重新上传。
 
-两个架构齐全后点击「设为当前」并确认。面板复制本机 CPU 架构文件为 `/data/corefiles/current-local`，不会自动安装或升级节点；该操作属于后续第 11/14 步。Linux distroless 部署可验证：
+两个架构齐全后点击「设为当前」并确认。面板复制本机 CPU 架构文件为 `/data/corefiles/current-local`，不会自动安装或升级节点；第 11 步已有 Agent 本地安装入口，面板下发和操作页由第 13/14 步接通。Linux distroless 部署可验证：
 
 ```sh
 docker compose exec server /data/corefiles/current-local version
@@ -474,3 +475,37 @@ Agent 下载请求需要 `Authorization: Bearer <agent token>`；校验返回头
 | Windows 下不能执行 current-local | 托管的是 Linux 核心，执行验证使用 Linux 容器或 Linux 面板 |
 
 每用户统计复验使用 `ci/sing-box-stats`，完整命令与真实结果见 [验证记录](verify/sing-box-stats.md)。
+
+## 15. Agent corectl（步骤 11）
+
+Linux systemd 节点上使用 root 运行。Agent 配置可增加：
+
+```yaml
+core:
+  stats_address: "127.0.0.1:10085"
+```
+
+只能填回环 IP:端口。sing-box 配置必须启用同地址的 v2ray_api 和对应用户/inbound 计数；具体字段见 core-version.md。核心服务日志由 systemd 收集至 `/var/log/sing-box/box.log`。
+
+```sh
+vps-agent core install --version v1.14.0 --sha256 <面板中本机架构的SHA256>
+vps-agent core apply --file config.json --version v1.14.0 --ports 443/tcp,8443/udp
+vps-agent core state
+vps-agent core stats
+vps-agent core logs --lines 200
+vps-agent core stop
+vps-agent core start
+vps-agent core restart
+```
+
+所有命令可用 `--config /path/agent.yaml`；只有 install 需要面板和 token。apply 默认使用持久化修订号 +1，也可以 `--revision N` 指定。stdout 只输出 JSON，错误写 stderr 并返回非零退出码。Windows 下 core 子命令会明确报告仅支持 Linux/systemd。
+
+安装只替换已校验的核心，不自动重启。配置 check 失败保留旧服务，端口缺失或重启失败会恢复旧配置；`core.state.applied_revision` 和 hash 只有成功后更新。发生配置失败时可以在本机运行 `sing-box check -c /path/config.json` 查看具体诊断，避免把包含密钥的校验输出发送到面板。
+
+恢复记录在 `/var/lib/vps-agent/core-apply.json`，旧配置在 `/etc/sing-box/config.json.bak`。恢复失败时保留这些文件；修复 systemd/磁盘权限问题后重新启动 Agent 或重试 core 动作。手动 apply 与 Agent 下发通过进程文件锁互斥；锁忙时稍后重试。
+
+统计会 reset，手动 `core stats` 会消费本次增量；诊断时应暂停 Agent 的统计采集，避免两个消费者分摊计数。离线期间保留计数在 sing-box 内存中，核心退出仍会丢失未采集增量。默认 systemd 在失败后 3 秒重启，10 秒轮询不一定能看见短暂退出；查看持续崩溃原因可读核心日志与 `journalctl -u sing-box`。
+
+ufw/firewalld 的规则只添加，不回收。普通 Agent 卸载保留 sing-box、日志及核心状态；`uninstall.sh --purge-core` 才全部删除这些受管文件。该选项不撤销防火墙规则。
+
+本地真实验收及安全清理步骤见 [verify/corectl.md](verify/corectl.md)。面板核心操作 UI 和配置下发由后续第 13/14 步实现。

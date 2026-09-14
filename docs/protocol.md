@@ -36,7 +36,7 @@
 | agent → server | `ping` | ping 任务结果 | 09 |
 | agent → server | `core.state` / `core.stats` / `core.logs` / `error` | sing-box 状态、流量、日志、执行失败 | 11 / 13 |
 | server → agent | `config` | 上报间隔、ping 任务 | 04 |
-| server → agent | `core.action` / `core.apply` | 安装启停、下发配置 | 11 / 13 |
+| server → agent | `core.action` / `core.apply` / `core.logs` | 安装启停、下发配置、读取日志 | 11 / 13 |
 
 ### 1.3 `hello`（agent → server）
 
@@ -56,7 +56,7 @@
 ```
 
 - `proto_version` 是 `proto.Version`（当前 1）。服务端目前只在版本不一致时记一条 WARN，**不拒绝连接、也不降级**——协议只有一个版本，真要做兼容判断也无从判起。等到真的出第 2 版再定策略。
-- `applied_revision` 是已应用的 sing-box 配置修订号，步骤 11 之前恒为 0。
+- `applied_revision` 是持久化的 sing-box 配置修订号；第 11 步起 Agent 在首次 hello 前恢复未完成的配置事务，随后 hello 上报最后成功修订号。每次连接在 hello 之后立即请求一次 core.state。
 - `ipv4` / `ipv6` 是**出口可达性**，不是地址：agent 分别用 `tcp4` / `tcp6` 拨 `1.1.1.1:443` 与 `[2606:4700:4700::1111]:443`，3 秒超时。节点的公网 IP 由服务端从连接的来源地址记（步骤 05）。
 - 采集不到的字符串字段填 `"unknown"`（LXC / OpenVZ 上 `host.Info()` 有些字段就是空的），数值字段填 0，不会因为单项失败整条消息缺席。
 
@@ -418,3 +418,30 @@ Agent 上报：
 URL 获取只接受 `https://github.com/{owner}/{repo}/releases/download/{tag}/{file}`，允许重定向到 GitHub Release 资产域名，不转发管理员或 Agent 凭据。传输最多两个并发、两分钟超时。上传只读 buildinfo/ELF，不运行核心，不向在线节点发送升级命令。
 
 新增审计 action：`corefile.upload`、`corefile.fetch`、`corefile.set_current`、`corefile.delete`；target_type 为 `corefile`，记录版本和产物元数据，不记录下载签名 URL 或凭据。
+
+## 7. Agent 核心管理消息（步骤 11）
+
+Agent 接收端已实现；服务端渲染、下发和上报入库仍由步骤 13 接通。字段采用 `proto/core.go` 的蛇形 JSON，未知字段、类型或动作拒绝。未定义的顶层消息仅记 WARN。
+
+```json
+{"type":"core.action","action":"install","version":"v1.14.0","file":"sing-box-linux-amd64","sha256":"<64位小写SHA256>","req_id":"install-1"}
+{"type":"core.action","action":"restart","req_id":"restart-1"}
+{"type":"core.apply","core":"sing-box","revision":1,"version":"v1.14.0","config_sha256":"<compact JSON的SHA256>","ports":["443/tcp","8443/udp"],"config":{},"req_id":"apply-1"}
+{"type":"core.logs","kind":"error","lines":200,"req_id":"logs-1"}
+```
+
+- `core.action` 仅 install/start/stop/restart；非 install 不接受 version/file/sha256。install 使用 Agent 配置里的面板 origin 和 Bearer token，仅下载 `/api/agent/corefiles/{version}/{arch}`，不跟随重定向。version 必须 `vX.Y.Z`；file 可省略，提供时必须与本机架构相符；不自动升级或重启已运行的核心。
+- `core.apply` 的 Config 是小于 1 MiB 的 JSON 对象，使用 Go `json.Compact` 后计算小写 SHA256。字段顺序会影响 hash。revision 为正数且单调不减，同 revision 不得换 hash；同 revision 重放会检查磁盘 hash、进程与端口。不同版本必须先显式安装。回滚内容应以新 revision 下发。
+- ports 最多 1024 项，格式为 `1..65535/tcp|udp`，不接受重复、前导零或任意命令片段。安装、配置与启停只有一个执行 worker，最多等待 4 项；队列满与校验失败返回带 error 的 core.state。拒绝消息不运行外部命令。
+- req_id 可选、最多 128 字节，用于 core.state 或 core.logs 关联请求。日志 kind 目前只有 error，lines 1–1000，单次文本最多 64 KiB。
+
+```json
+{"type":"core.state","core":"sing-box","installed_version":"v1.14.0","running":true,"applied_revision":1,"config_sha256":"<SHA256>","listening":["443/tcp"],"firewall":"none","error":null,"req_id":"apply-1"}
+{"type":"core.stats","ts":1789369552,"inbounds":[{"name":"ss-test","up":85,"down":1000117}],"users":[{"name":"sub-1","up":85,"down":1000117}]}
+{"type":"core.logs","kind":"error","text":"...","req_id":"logs-1"}
+```
+
+- core.state 在 hello 后、执行完成、每 60 秒与每 10 秒轮询发现 running 变化时上报。listening 来自本机 `/proc/net/tcp{,6}`、`udp{,6}`，不代表独占端口归属。firewall 为 ufw/firewalld/none；应用只添加规则，回滚不删除放行规则。error 最多 2 KiB，配置校验 stderr 不透传，避免回传密钥。
+- core.stats 每 10 秒从回环地址调用 `/v2ray.core.app.stats.command.StatsService/QueryStats`，reset=true。up/down 是客户端上传/下载的字节增量；未知计数器或负数忽略。连接失败后等待 60 秒重试，错误通过 core.state 回传。
+- 离线不查询/reset；发送失败保留当前批次直到重发成功。没有应用层 ACK 或持久队列，进程退出或 reset 后网络中断仍有丢失/确认边界，不保证精确一次。
+- 配置应用先 check，再备份、替换、放行、restart、检查端口；失败恢复旧配置和修订。首次应用没有旧配置则 stop 并删除失败配置。未完成事务留在 `/var/lib/vps-agent/core-apply.json`，Agent 启动恢复后才发 hello。

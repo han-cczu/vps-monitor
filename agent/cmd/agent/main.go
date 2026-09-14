@@ -1,7 +1,7 @@
 // Command agent 是装在每台 VPS 上的采集与受控执行进程。
 //
 // 步骤 04：采集静态信息与秒级指标，通过 WSS 上报，断线自动重连。
-// sing-box 相关（corectl）见步骤 11。
+// 步骤 11：白名单 sing-box 核心管理与统计。
 package main
 
 import (
@@ -20,6 +20,7 @@ import (
 
 	"vpsmon/agent/internal/collector"
 	"vpsmon/agent/internal/config"
+	"vpsmon/agent/internal/corectl"
 	"vpsmon/agent/internal/ping"
 	"vpsmon/agent/internal/transport"
 	"vpsmon/proto"
@@ -33,6 +34,14 @@ var version = "dev"
 const hostInfoTTL = 5 * time.Minute
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "core" {
+		setLogger(slog.LevelInfo)
+		if err := runCore(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	var (
 		configPath  = flag.String("config", config.DefaultPath, "配置文件路径")
 		once        = flag.Bool("once", false, "采集一次并打印 JSON 后退出，不联网上报")
@@ -98,6 +107,11 @@ func run(configPath string, once bool) error {
 		}
 	})
 	defer pinger.Stop()
+	core, err := corectl.New(corectl.Options{Server: cfg.Server, Token: cfg.Token, StatsAddress: cfg.Core.StatsAddress,
+		Send: func(v any) error { return client.Send(v) }, Connected: func() bool { return client.Connected() }})
+	if err != nil {
+		return err
+	}
 
 	client = transport.New(transport.Options{
 		Server:  cfg.Server,
@@ -105,15 +119,17 @@ func run(configPath string, once bool) error {
 		Version: version,
 		Hello: func() proto.Hello {
 			return proto.Hello{
-				Type:         proto.TypeHello,
-				ProtoVersion: proto.Version,
-				Version:      version,
-				Host:         host.get(),
+				Type:            proto.TypeHello,
+				ProtoVersion:    proto.Version,
+				Version:         version,
+				Host:            host.get(),
+				AppliedRevision: core.AppliedRevision(),
 			}
 		},
 		OnMessage: func(msgType string, raw []byte) {
-			handleMessage(msgType, raw, &reportInterval, pinger)
+			handleMessage(msgType, raw, &reportInterval, pinger, core, client)
 		},
+		OnConnect: core.RequestState,
 	})
 
 	slog.Info("agent 启动",
@@ -123,8 +139,12 @@ func run(configPath string, once bool) error {
 		"disk_mounts", cfg.DiskMounts,
 	)
 
-	go client.Run(ctx)
+	var workers sync.WaitGroup
+	workers.Go(func() { core.Run(ctx) })
+	<-core.Ready() // Recover interrupted config replacement before the first hello.
+	workers.Go(func() { client.Run(ctx) })
 	sampleLoop(ctx, sampler, client, &reportInterval)
+	workers.Wait()
 
 	slog.Info("agent 已停止")
 	return nil
@@ -197,8 +217,8 @@ func sampleLoop(ctx context.Context, sampler *collector.Sampler, client *transpo
 	}
 }
 
-// handleMessage 对齐上报间隔和 ping 任务；core.* 留给步骤 11/13。
-func handleMessage(msgType string, raw []byte, interval *atomic.Int64, pinger *ping.Scheduler) {
+// handleMessage only accepts the protocol allowlist.
+func handleMessage(msgType string, raw []byte, interval *atomic.Int64, pinger *ping.Scheduler, core *corectl.Manager, client *transport.Client) {
 	switch msgType {
 	case proto.TypeConfig:
 		var c proto.Config
@@ -216,6 +236,19 @@ func handleMessage(msgType string, raw []byte, interval *atomic.Int64, pinger *p
 		// 每次 config 都整体对齐一次，包括「一个任务都没有」——那表示全部停掉。
 		// 服务端在任务增删改之后会主动重发 config，所以不需要重连也能生效。
 		pinger.Apply(context.Background(), c.PingTasks)
+	case proto.TypeCoreApply, proto.TypeCoreAction, proto.TypeCoreLogs:
+		if err := core.Handle(raw); err != nil {
+			slog.Warn("核心指令被拒绝", "type", msgType, "err", err)
+			var req struct {
+				ReqID string `json:"req_id"`
+			}
+			_ = json.Unmarshal(raw, &req)
+			if len(req.ReqID) > 128 {
+				req.ReqID = ""
+			}
+			st := core.Rejected(req.ReqID, err)
+			_ = client.Send(st)
+		}
 	default:
 		slog.Warn("收到暂不支持的消息类型", "type", msgType)
 	}
@@ -258,5 +291,5 @@ func (h *hostCache) get() proto.HostInfo {
 }
 
 func setLogger(level slog.Level) {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})))
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
 }

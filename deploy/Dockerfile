@@ -28,7 +28,7 @@ WORKDIR /src
 
 # 同样先拷模块清单，锁文件没变时不用重新下依赖
 COPY go.work go.work.sum ./
-COPY proto/go.mod proto/
+COPY proto/go.mod proto/go.sum proto/
 COPY agent/go.mod agent/go.sum agent/
 COPY server/go.mod server/go.sum server/
 RUN go mod download all

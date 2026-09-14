@@ -6,6 +6,8 @@ require (
 	github.com/coder/websocket v1.8.15
 	github.com/prometheus-community/pro-bing v0.9.1
 	github.com/shirou/gopsutil/v4 v4.26.8
+	golang.org/x/sys v0.48.0
+	google.golang.org/grpc v1.79.1
 	gopkg.in/yaml.v3 v3.0.1
 	vpsmon/proto v0.0.0
 )
@@ -22,7 +24,9 @@ require (
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/text v0.38.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 )
 
 replace vpsmon/proto => ../proto

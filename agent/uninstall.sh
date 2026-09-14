@@ -3,8 +3,8 @@
 #
 #   bash uninstall.sh [--purge-core]
 #
-# 默认删掉 agent 自身（服务、二进制、配置、状态目录）。
-# --purge-core 连 agent 装的 sing-box 一起删（步骤 11 起才有东西可删）。
+# 默认删除 agent 自身，保留 sing-box 及其修订/恢复状态，供重新安装后接管。
+# --purge-core 连 agent 装的 sing-box 及状态一起删。
 set -euo pipefail
 
 BIN_PATH=/usr/local/bin/vps-agent
@@ -45,7 +45,6 @@ echo "==> 删除服务与文件"
 rm -f "$UNIT_PATH"
 rm -f "$BIN_PATH"
 rm -rf "$CONF_DIR"
-rm -rf "$STATE_DIR"
 
 if [ "$PURGE_CORE" -eq 1 ]; then
   echo "==> 一并删除 sing-box"
@@ -56,6 +55,8 @@ if [ "$PURGE_CORE" -eq 1 ]; then
   rm -f "$CORE_UNIT"
   rm -f "$CORE_BIN"
   rm -rf "$CORE_DIR"
+  rm -rf /var/log/sing-box
+  rm -rf "$STATE_DIR"
 fi
 
 if command -v systemctl >/dev/null 2>&1; then

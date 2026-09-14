@@ -20,6 +20,7 @@ jobs:
         with:
           go-version: '1.26'
           cache-dependency-path: |
+            proto/go.sum
             agent/go.sum
             server/go.sum
 
@@ -29,6 +30,9 @@ jobs:
 
       - name: go test
         run: go test ./proto/... ./agent/... ./server/...
+
+      - name: agent concurrency checks
+        run: go test -race ./agent/internal/corectl ./agent/internal/transport ./agent/internal/ping
 
       - name: go build (agent 交叉编译)
         run: |

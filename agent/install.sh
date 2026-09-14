@@ -100,8 +100,8 @@ if [ -f "$CONF_PATH" ]; then
   echo "==> 更新已有配置里的 server 与 token"
   tmp_conf="$(mktemp)"
   SERVER="$SERVER" TOKEN="$TOKEN" awk '
-    /^[[:space:]]*server:/ { print "server: " ENVIRON["SERVER"]; seen_server=1; next }
-    /^[[:space:]]*token:/  { print "token: \"" ENVIRON["TOKEN"] "\""; seen_token=1; next }
+    /^server:/ { print "server: " ENVIRON["SERVER"]; seen_server=1; next }
+    /^token:/  { print "token: \"" ENVIRON["TOKEN"] "\""; seen_token=1; next }
     { print }
     END {
       if (!seen_server) print "server: " ENVIRON["SERVER"]
@@ -120,6 +120,8 @@ interfaces:
   exclude: ["lo", "docker*", "veth*", "br-*", "tun*", "tap*", "tailscale*", "wg*"]
 disk_mounts: ["/"]
 log_level: info
+core:
+  stats_address: "127.0.0.1:10085"
 EOF
 fi
 chmod 600 "$CONF_PATH"

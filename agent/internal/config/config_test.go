@@ -72,10 +72,11 @@ log_level: debug
 
 func TestParseRejectsBadValues(t *testing.T) {
 	cases := map[string]string{
-		"不是 YAML": "server: [unclosed\n",
-		"间隔为负":    "report_interval: -1\n",
-		"间隔超上限":   "report_interval: 3600\n",
-		"日志级别不对":  "log_level: verbose\n",
+		"不是 YAML":   "server: [unclosed\n",
+		"间隔为负":      "report_interval: -1\n",
+		"间隔超上限":     "report_interval: 3600\n",
+		"日志级别不对":    "log_level: verbose\n",
+		"统计接口必须在本机": "core:\n  stats_address: 0.0.0.0:10085\n",
 	}
 	for name, raw := range cases {
 		if _, err := Parse([]byte(raw)); err == nil {

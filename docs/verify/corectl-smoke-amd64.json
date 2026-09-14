@@ -1,0 +1,53 @@
+{
+  "platform": "Linux systemd",
+  "download_fixture": "authenticated loopback HTTP",
+  "checks": {
+    "install_sha256_version_unit": true,
+    "real_apply_listening_permissions": true,
+    "invalid_config_preserves_service": true,
+    "occupied_port_rollback_restores_service": true,
+    "real_user_stats_and_reset": true,
+    "real_log_tail": true,
+    "start_stop_restart": true,
+    "crash_observed_with_restart_disabled": true
+  },
+  "stats_first": {
+    "type": "core.stats",
+    "ts": 1789370098,
+    "inbounds": [
+      {
+        "name": "ss-test",
+        "up": 85,
+        "down": 1000117
+      }
+    ],
+    "users": [
+      {
+        "name": "sub-1",
+        "up": 85,
+        "down": 1000117
+      }
+    ]
+  },
+  "stats_after_reset": {
+    "type": "core.stats",
+    "ts": 1789370098,
+    "inbounds": [
+      {
+        "name": "ss-test",
+        "up": 0,
+        "down": 0
+      }
+    ],
+    "users": [
+      {
+        "name": "sub-1",
+        "up": 0,
+        "down": 0
+      }
+    ]
+  },
+  "crash_detection_seconds": 9.524,
+  "firewall": "none",
+  "passed": true
+}

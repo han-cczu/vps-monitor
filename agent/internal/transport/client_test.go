@@ -31,6 +31,45 @@ func testHello() proto.Hello {
 	}
 }
 
+func TestOnConnectAfterHello(t *testing.T) {
+	frames := make(chan string, 2)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		for i := 0; i < 2; i++ {
+			_, raw, err := conn.Read(r.Context())
+			if err != nil {
+				return
+			}
+			var env proto.Envelope
+			if json.Unmarshal(raw, &env) != nil {
+				return
+			}
+			frames <- env.Type
+		}
+	}))
+	defer srv.Close()
+	var client *Client
+	client = New(Options{Server: wsURL(srv.URL), Hello: testHello, OnConnect: func() { _ = client.Send(proto.CoreState{Type: proto.TypeCoreState, AppliedRevision: 4}) }})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { client.Run(ctx); close(done) }()
+	defer func() { cancel(); <-done }()
+	for _, want := range []string{proto.TypeHello, proto.TypeCoreState} {
+		select {
+		case got := <-frames:
+			if got != want {
+				t.Fatalf("got %s want %s", got, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("missing connection frame")
+		}
+	}
+}
+
 func TestClientHandshakeAndMessages(t *testing.T) {
 	var (
 		gotAuth    string

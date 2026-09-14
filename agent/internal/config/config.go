@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+	"vpsmon/agent/internal/corectl"
 )
 
 // DefaultPath 是配置文件的默认位置。
@@ -38,6 +39,11 @@ type Config struct {
 	Interfaces     Interfaces `yaml:"interfaces"`
 	DiskMounts     []string   `yaml:"disk_mounts"` // 磁盘统计的挂载点，多项求和
 	LogLevel       string     `yaml:"log_level"`   // debug / info / warn / error
+	Core           Core       `yaml:"core"`
+}
+
+type Core struct {
+	StatsAddress string `yaml:"stats_address"`
 }
 
 // Interfaces 是网卡过滤规则。
@@ -85,6 +91,12 @@ func Parse(raw []byte) (Config, error) {
 		cfg.LogLevel = "info"
 	}
 	if _, err := ParseLogLevel(cfg.LogLevel); err != nil {
+		return Config{}, err
+	}
+	if cfg.Core.StatsAddress == "" {
+		cfg.Core.StatsAddress = "127.0.0.1:10085"
+	}
+	if err := corectl.ValidateStatsAddress(cfg.Core.StatsAddress); err != nil {
 		return Config{}, err
 	}
 
