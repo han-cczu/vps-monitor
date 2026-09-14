@@ -36,10 +36,13 @@ jobs:
         run: go test ./proto/... ./agent/... ./server/...
 
       - name: agent concurrency checks
-        run: go test -race ./agent/internal/corectl ./agent/internal/transport ./agent/internal/ping
+        run: go test -race ./agent/internal/corectl ./agent/internal/transport ./agent/internal/ping ./agent/internal/selfupdate
 
       - name: proxy concurrency checks
         run: go test -race ./server/internal/proxy/... ./server/internal/store ./server/internal/api ./server/internal/hub ./server/internal/corefiles
+
+      - name: billing and alert concurrency checks
+        run: go test -race ./server/internal/traffic ./server/internal/billing ./server/internal/alert ./server/internal/maintenance
 
       - name: go build (agent 交叉编译)
         run: |
