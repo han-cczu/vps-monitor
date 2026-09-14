@@ -387,20 +387,25 @@ func (s *Service) Deliver(ctx context.Context, now time.Time) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		channel, err := s.db.NotifyChannel(ctx, d.ChannelID)
+		claim, err := s.db.ClaimAlertDelivery(ctx, d, s.now().Unix())
 		if err != nil {
+			return err
+		}
+		if claim == nil {
 			continue
 		}
-		event, err := s.db.AlertEvent(ctx, d.EventID)
-		if err != nil {
-			continue
-		}
-		err = s.sender.Send(ctx, *channel, *event, d.Recovery)
-		if finishErr := s.db.FinishAlertDelivery(ctx, d, s.now().Unix(), err); finishErr != nil {
+		// The persisted claim is the send-attempt boundary. Control actions
+		// committed before it prevent sending; an already started attempt may
+		// finish after a later cancellation. Never hold a DB tx during HTTP.
+		// Bound the request below the 30s claim lease even for injected clients.
+		sendCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		err = s.sender.Send(sendCtx, claim.Channel, claim.Event, d.Recovery)
+		cancel()
+		if finishErr := s.db.FinishAlertDelivery(ctx, claim.Delivery, s.now().Unix(), err); finishErr != nil {
 			return finishErr
 		}
 		if err != nil {
-			slog.Warn("alert delivery failed", "event_id", d.EventID, "channel_id", d.ChannelID, "attempt", d.Attempts+1, "reason", err.Error())
+			slog.Warn("alert delivery failed", "event_id", d.EventID, "channel_id", d.ChannelID, "attempt", claim.Delivery.Attempts, "reason", err.Error())
 		}
 	}
 	return nil
