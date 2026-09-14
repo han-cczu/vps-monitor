@@ -36,6 +36,10 @@ func (d *Deps) mfa(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, err := d.DB.GetUserByID(r.Context(), id)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		writeError(w, 500, "验证服务暂时不可用")
+		return
+	}
 	if err != nil || !user.TOTPEnabled || user.PasswordHash != hash {
 		d.Limiter.Fail(ipKey)
 		d.Limiter.Fail(key)
