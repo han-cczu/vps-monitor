@@ -6,16 +6,19 @@
 
 命令（Linux Go 1.26）：`go test ./internal/proxy/sub ./internal/api ./internal/store -run TestSub -count=1` 与 `-run TestClash`；前端 `tsc --noEmit` 和本步骤文件 ESLint。
 
-真实客户端尚未执行，不能据生成字段或单元测试推断连接成功：
+最终主线已运行真实Mihomo核心。GUI/手机扫码与公网测试仍单独保留：
 
 | 项目 | 客户端与版本 | 结果 |
 | --- | --- | --- |
 | Clash Verge Rev/CMFA 扫码导入四协议 | 待填 | 待验收 |
 | VLESS/SS/HY2/TUIC 分别访问外网 | 待填 | 待验收 |
-| HY2/TUIC 正确指纹可连，改错一位断连 | 待填 | 待验收 |
-| SS2022 多用户密码被接受 | 待填 | 待验收 |
+| VLESS/SS/HY2/TUIC 逐条访问本地负载 | Mihomo v1.19.30 Linux amd64 | 通过 |
+| HY2/TUIC 正确指纹可连，错误指纹拒绝 | Mihomo v1.19.30 Linux amd64 | 通过 |
+| SS2022 多用户密码被接受 | Mihomo v1.19.30 Linux amd64 | 通过 |
 | 客户端显示流量与到期 | 待填 | 待验收 |
-| Caddy `adapt/validate` 和实际访问日志检查 | 待填 | 待验收 |
+| Caddy `validate` 和实际 access/error 日志检查 | Caddy v2.11.4 Docker | 通过（包含上游502） |
+
+最终27项链路、额度中断/恢复与token轮换见 [completion.md](completion.md) 和原始JSON；不能用CLI结果声称手机扫码、GUI信息栏或公网连通已验。
 
 协议来源（2026-09-14 核对）：[mihomo TLS](https://wiki.metacubex.one/config/proxies/tls/)、[Hysteria2](https://wiki.metacubex.one/config/proxies/hysteria2/)、[TUIC](https://wiki.metacubex.one/config/proxies/tuic/)、[Shadowsocks](https://wiki.metacubex.one/config/proxies/ss/)。`fingerprint` 是完整证书的 SHA-256；叶子指纹匹配时不进行额外验证，不应称为公钥 pin 或通常 PKI 校验。`certificate` 在 mihomo TLS 配置中用于 mTLS，不应误当作信任根。
 

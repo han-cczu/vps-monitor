@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify a new server against an online-backup copy of an existing local DB."""
 import argparse
+from contextlib import closing
 import json
 import os
 from pathlib import Path
@@ -30,8 +31,8 @@ def main():
     process = None
     log = None
     try:
-        with sqlite3.connect(source.as_uri() + '?mode=ro', uri=True) as original:
-            with sqlite3.connect(data / 'vm.db') as clone:
+        with closing(sqlite3.connect(source.as_uri() + '?mode=ro', uri=True)) as original:
+            with closing(sqlite3.connect(data / 'vm.db')) as clone:
                 original.backup(clone)
                 assert clone.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
                 before_version = clone.execute('SELECT MAX(version_id) FROM goose_db_version WHERE is_applied=1').fetchone()[0]
@@ -75,7 +76,7 @@ def main():
         assert len(api('/api/servers')['servers']) == len(before_nodes)
         assert 'site.title' in api('/api/settings')
         assert 'subscribers' in api('/api/subscribers')
-        with sqlite3.connect(data / 'vm.db') as clone:
+        with closing(sqlite3.connect(data / 'vm.db')) as clone:
             assert clone.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
             after_version = clone.execute('SELECT MAX(version_id) FROM goose_db_version WHERE is_applied=1').fetchone()[0]
             assert after_version == 12

@@ -18,7 +18,7 @@
 
 ## 验证边界
 
-- 本次提交仅执行 Python 语法解析、`--help` 入口检查，以及配置隔离函数的纯内存正负断言；**未运行真实核心或重型集成**。两跳网络结果须由主任务在完整冒烟成功后记录，不能将脚本内的预期断言当作已通过证据。
+- 脚本提交时仅执行静态/模拟检查；最终主线已在真实Linux核心运行，A→B负载、停B拒绝/恢复、删除后直连三项全部通过。结果见 [completion-smoke-amd64.json](completion-smoke-amd64.json) 的 `relay_*` 和 `relay` 字段。
 - B 无 Agent；删除了统计扩展，因此此脚本不验证 B 的 Agent 上报、流量计费、双节点分账或重启对齐。证据明确包含 `target_agent=false`、`target_accounting_verified=false`。
 - 只验证 SS2022 的 A→B TCP 转发及 relay 移除；不代表 VLESS 中转、UDP、公网跨主机、真实出口 IP 或高负载表现。
 - 删除 relay 后检查 B 的新期望 ACL，但没有把该新配置应用到 B 再测旧凭据拒绝；B 在 direct 恢复验证时已经停止。

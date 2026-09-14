@@ -12,7 +12,7 @@
 - `VM_TEST_SINGBOX=... go test ./internal/proxy -run TestRelay`：真实核心对生成中转、移除后配置均预检通过；高级未知字段被真实核心拒绝，错误返回中保留字段名。
 - HTTP 鉴权、UTC+8 面板/UTC 系统跨日（订阅到期头与 30 天分账）、既有代理 CRUD 回归、前端 TypeScript 和 ESLint。
 
-未在本步骤工作区执行的网络验收：sing-box 四出站实际传输、Shadowrocket/NekoBox URI 导入、双节点 A→B 出口 IP 变化及移除后恢复、云安全组实际端口检查。由主任务集成环境完成，不能由 `check` 推断通过。
+最终主线已完成sing-box四出站实际传输，以及本地A→B停B拒绝/重启恢复/移除后直连对照，见 [completion.md](completion.md)。Shadowrocket/NekoBox URI导入、双VPS出口IP和B分账、云安全组端口检查仍未执行，不能由本地结果推断通过。
 
 主要来源（2026-09-14 核对）：
 

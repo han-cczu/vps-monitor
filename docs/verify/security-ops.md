@@ -71,6 +71,8 @@ npm audit --json
 
 ## 实现依据
 
+最终补充：Go1.26.8重新构建后的27项真实集成通过，Agent同PID更新重连3.311秒；HY2/TUIC错误pin均拒绝。浏览器已验证400px订阅/规则/弹窗、二步登录、单位/时区/标题保存与审计过滤；Linux全模块race通过。详见 [completion.md](completion.md)，保留本文件以上初轮时间与版本作为历史证据。
+
 - TOTP 使用 [pquerna/otp](https://github.com/pquerna/otp) 与 [RFC 6238](https://datatracker.ietf.org/doc/html/rfc6238)；库校验之外增加数据库持久去重和凭据 CAS。
 - 维护采用 [SQLite PRAGMA 文档](https://www.sqlite.org/pragma.html) 的 checkpoint/optimize；checkpoint busy 保留下一小时重试。
 - 日志过滤按 [Caddy log 官方文档](https://caddyserver.com/docs/caddyfile/directives/log) 配置，并以实际容器正常/错误响应验证。

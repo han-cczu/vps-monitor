@@ -78,11 +78,11 @@ func RenderClashProvider(proxies []Proxy) ([]byte, error)
 - [ ] 订阅对话框二维码用 Clash Verge Rev 扫码导入成功，`proxies` 四条，命名正确
 - [ ] 四条代理逐一切换均可访问外网；Hysteria2 / TUIC 在 `skip-cert-verify: false` 下连通；把 `fingerprint` 改错一位后连不上（pin 生效）
 - [ ] Clash 订阅信息显示已用流量与到期（`subscription-userinfo` 生效）
-- [ ] `format=clash-provider` 只有 `proxies:`；模板改坏时接口 500 且日志有明确错误
-- [ ] 停用用户后刷新订阅得到空列表且首行注释说明；重置 token 后旧链接 404
-- [ ] 同一 token 每分钟 31 次请求第 31 次 429
-- [ ] 访问日志与 Caddy 日志里看不到 token 明文
-- [ ] `docs/verify/clash-import.md` 记录完成
+- [x] `format=clash-provider` 只有 `proxies:`；模板改坏时接口 500 且日志有明确错误（后端测试）
+- [x] 停用用户后刷新订阅得到空列表且首行注释说明；重置 token 后旧链接 404（真实 Mihomo/HTTP）
+- [x] 同一 token 每分钟 31 次请求第 31 次 429（确定性 HTTP 测试）
+- [x] 访问日志与 Caddy 日志里看不到 token 明文（真实本地容器含 502 error 日志）
+- [x] `docs/verify/clash-import.md` 记录完成
 
 ## 7. 风险与注意
 

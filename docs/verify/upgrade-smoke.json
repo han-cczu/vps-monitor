@@ -1,0 +1,19 @@
+{
+  "passed": true,
+  "source_modified": false,
+  "migration_before": 3,
+  "migration_after": 12,
+  "users_preserved": 1,
+  "nodes_preserved": 2,
+  "history_before": {
+    "metrics_minute": 1684,
+    "metrics_hour": 30
+  },
+  "history_after": {
+    "metrics_minute": 1684,
+    "metrics_hour": 30
+  },
+  "existing_password_login": true,
+  "new_settings_subscribers_api": true,
+  "integrity_check": "ok"
+}
