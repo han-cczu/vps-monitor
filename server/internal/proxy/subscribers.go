@@ -38,6 +38,7 @@ func (s *Service) SaveSubscriber(ctx context.Context, id int64, in SubscriberInp
 			sub.SubToken = keys.SubToken()
 			credentials(&sub)
 			sub.PeriodStart = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).Unix()
+			sub.PeriodDate = now.Format(time.DateOnly)
 		} else {
 			var err error
 			before, err = q.Subscriber(ctx, id)
