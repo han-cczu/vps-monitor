@@ -55,7 +55,7 @@ func TestTOTPEnrollmentMFAAndPersistentReplay(t *testing.T) {
 	if resp.StatusCode != 401 {
 		t.Fatal("ticket reused")
 	}
-	// A new in-memory MFA instance still cannot reuse the SQLite-recorded code.
+	// SQLite rejects reuse independent of the in-memory ticket lifecycle.
 	if err := e.db.ConsumeTOTP(context.Background(), u.ID, time.Now().Unix()/30+1, next, time.Now()); err == nil {
 		t.Fatal("persistent replay accepted")
 	}

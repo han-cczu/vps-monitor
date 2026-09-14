@@ -42,7 +42,7 @@ const verifyQueueTimeout = 5 * time.Second
 type Deps struct {
 	DB               *store.DB
 	Tokens           *auth.Tokens
-	settingsMu       sync.Mutex
+	settingsMu       *sync.Mutex
 	SettingsDefaults map[string]any
 	ValidateSetting  func(key string, value json.RawMessage) error
 	SettingsChanged  func(keys []string)
@@ -75,6 +75,7 @@ type Deps struct {
 // NewRouter 构建根路由。
 func NewRouter(deps Deps) http.Handler {
 	d := &deps
+	d.settingsMu = &sync.Mutex{}
 	if d.MFA == nil {
 		d.MFA = d.Tokens.NewMFA()
 	}

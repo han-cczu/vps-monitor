@@ -43,7 +43,7 @@ fi
 
 echo "==> 删除服务与文件"
 rm -f "$UNIT_PATH"
-rm -f "$BIN_PATH"
+rm -f "$BIN_PATH" "${BIN_PATH}.bak"
 rm -rf "$CONF_DIR"
 
 if [ "$PURGE_CORE" -eq 1 ]; then
@@ -52,7 +52,7 @@ if [ "$PURGE_CORE" -eq 1 ]; then
     systemctl stop sing-box 2>/dev/null || true
     systemctl disable sing-box 2>/dev/null || true
   fi
-  rm -f "$CORE_UNIT"
+  rm -f "$CORE_UNIT" /etc/logrotate.d/sing-box
   rm -f "$CORE_BIN"
   rm -rf "$CORE_DIR"
   rm -rf /var/log/sing-box
