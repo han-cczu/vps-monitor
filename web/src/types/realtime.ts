@@ -4,6 +4,7 @@
 // （`group` 不是 `group_name`、`cycle` 不是 `billing_cycle`），两边都要改的时候别只改一处。
 // 服务端那边有 golden 测试（server/internal/hub/testdata/snapshot.json）守着字段名。
 
+import type { PingSummary } from 'src/types/ping';
 import type { BillingCycle } from 'src/types/server';
 
 // ----------------------------------------------------------------------
@@ -74,8 +75,8 @@ export type ServerSnapshot = {
 
   /** 剩余流量：步骤 18 填充，在那之前恒为 null */
   traffic: null;
-  /** 三网延迟：步骤 09 填充，在那之前恒为空数组 */
-  ping: unknown[];
+  /** 启用的延迟任务摘要；无任务时为空数组 */
+  ping: PingSummary[];
   /** sing-box 核心状态：步骤 13 填充，在那之前恒为 null */
   core: null;
 };

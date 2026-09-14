@@ -2,10 +2,11 @@ import type { Theme } from '@mui/material/styles';
 import type { ChartOptions } from './types';
 
 import { useMemo } from 'react';
-import { merge } from 'es-toolkit';
 import { varAlpha } from 'minimal-shared/utils';
 
 import { useTheme } from '@mui/material/styles';
+
+import { mergeChartOptions } from './merge-options';
 
 // ----------------------------------------------------------------------
 
@@ -15,7 +16,7 @@ export function useChart(updatedOptions?: ChartOptions): ChartOptions {
   const baseOptions = useMemo(() => baseChartOptions(theme), [theme]);
 
   return useMemo(
-    () => (updatedOptions ? merge(baseOptions, updatedOptions) : baseOptions),
+    () => (updatedOptions ? mergeChartOptions(baseOptions, updatedOptions) : baseOptions),
     [baseOptions, updatedOptions]
   );
 }

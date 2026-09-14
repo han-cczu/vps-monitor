@@ -418,3 +418,31 @@ sqlite3 ./data/vm.db "SELECT datetime(ts,'unixepoch','localtime'), samples, roun
 每个请求一行 JSON，字段：`method`、`path`、`status`、`bytes`、`dur_ms`、`ip`、`req_id`。`/api/*` 记 `INFO`；静态资源与 `/api/health` 记 `DEBUG`，要看得 `VM_LOG_LEVEL=debug`。日志里不含 query 参数。
 
 服务端 panic 会记一条 `panic recovered` 的 `ERROR`，带 `stack` 字段（完整堆栈）和 `req_id`，同时给客户端返回 500 `{"message":"服务器内部错误"}`。
+
+
+## Ping 任务运维（步骤 09）
+
+进入「设置 → Ping 任务」创建或编辑探测：ICMP 填 IP/域名，TCP 填主机:端口；默认每 60 秒，允许 10–3600 秒。启用“全部节点”会包含将来新增的节点；关闭后可多选节点，空选择代表不向任何节点下发。保存后显示配置进入发送队列的在线节点数，离线节点会在重连时收到最新配置。
+
+首次探测随机等待 0–间隔秒，单次超时 3 秒。Linux 的 ICMP 使用原始套接字，需要 root 或 CAP_NET_RAW；原有 install.sh 以 root 启动 Agent。禁止 ICMP 的节点可改用 TCP。默认三个公网 IP 只作为示例，不保证所有机房都能访问。
+
+卡片最新延迟/丢包率跟随 WS 快照；30 个方块每分钟刷新，最新在右：<100ms 绿、<200ms 黄、其余橙、超时红、尚无数据灰。离线节点显示最后记录。详情页“延迟”提供 1h/24h/7d/30d，左轴毫秒、右轴丢包百分比；断线没有样本的时段留空。
+
+| 现象 | 检查 |
+|---|---|
+| 等待探测 | 节点是否在线、任务是否启用且作用范围包含该节点；等待一个间隔加 3 秒 |
+| 一直超时 | Agent 的 `ping 探测失败` 日志（每任务最多 10 分钟一条）；手动 ping 目标或测试对应 TCP 端口 |
+| 保存显示推送 0 台 | 当前没有可用发送队列；检查节点连接与服务端错误日志，离线重连会获取配置 |
+| 卡片有数据，曲线暂时没有 | 等待 5 秒批量入库；若一直不出现，检查 `ping 结果落库失败，将重试` 与磁盘空间 |
+| 禁用后任务行消失 | 正常；Agent 停止执行，卡片只展示启用任务，历史仍留库。删除任务才会删除历史 |
+| 面板重启 | 已落库最近 30 点恢复；强杀前最后几秒未入库的数据不能保证恢复 |
+
+保留期设置为 JSON 整数，默认 30 天，有效范围 1–3650：
+
+```sh
+sqlite3 ./data/vm.db "INSERT INTO settings (key,value) VALUES ('retention.ping_days','30') ON CONFLICT(key) DO UPDATE SET value=excluded.value;"
+```
+
+启动和每小时清理过期结果。队列超过 100000 条时会丢弃最老的待写结果并记录 ERROR；持续数据库错误应优先处理，重试不等于持久化保证。
+
+本地自动化：`go vet ./proto/... ./agent/... ./server/...`、`go test ./proto/... ./agent/... ./server/...`；在 web 目录运行 `npm test`、`npm run tsc:check`、`npm run lint`、`npm run build`。前端测试使用 Node 24 自带测试运行器，没有额外测试依赖。竞态检测可在具备 CGO/C 编译器的环境运行 `go test -race ./agent/internal/ping ./server/internal/ping ./server/internal/hub`。

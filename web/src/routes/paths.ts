@@ -43,6 +43,7 @@ export const paths = {
     settings: {
       root: `${ROOTS.DASHBOARD}/settings`,
       account: `${ROOTS.DASHBOARD}/settings/account`,
+      pingTasks: `${ROOTS.DASHBOARD}/settings/ping-tasks`,
     },
   },
 };

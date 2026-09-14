@@ -30,6 +30,7 @@ import (
 	"vpsmon/server/internal/config"
 	"vpsmon/server/internal/hub"
 	"vpsmon/server/internal/metrics"
+	"vpsmon/server/internal/ping"
 	"vpsmon/server/internal/store"
 	"vpsmon/server/web"
 )
@@ -227,6 +228,24 @@ func run() error {
 	go limiter.Run(ctx, time.Minute)
 
 	realtime := hub.New(db, tokens)
+	pings := ping.New(db, realtime.Agents)
+	if err := pings.ReloadTasks(ctx); err != nil {
+		return fmt.Errorf("load ping tasks: %w", err)
+	}
+	if err := pings.Cleanup(ctx); err != nil {
+		return fmt.Errorf("clean ping results: %w", err)
+	}
+	if err := pings.Warm(ctx); err != nil {
+		return fmt.Errorf("warm ping results: %w", err)
+	}
+	realtime.Agents.OnPing(pings.OnPing)
+	realtime.Agents.SetConfigBuilder(func(id int64) any { return pings.BuildConfig(id, hub.DefaultReportInterval) })
+	realtime.Registry.SetPingSource(pings.SnapshotFor)
+	pingCtx, stopPing := context.WithCancel(context.Background())
+	pingDone := make(chan struct{})
+	go func() { defer close(pingDone); pings.Run(pingCtx) }()
+	// HTTP 收尾后停止接收结果，等待最后一批落库，再关闭数据库。
+	defer func() { stopPing(); <-pingDone }()
 
 	// 指标聚合：每条 metrics 先进内存桶，每分钟落一次库；每小时降采样并清理过期数据
 	aggregator := metrics.New(db)
@@ -246,6 +265,7 @@ func run() error {
 		DataDir:        cfg.DataDir,
 		PublicURL:      cfg.PublicURL,
 		Hub:            realtime,
+		Ping:           pings,
 	})
 
 	srv := &http.Server{

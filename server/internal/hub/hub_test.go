@@ -139,8 +139,8 @@ func TestAgentConnectGetsConfig(t *testing.T) {
 	if cfg.Type != proto.TypeConfig {
 		t.Errorf("首条下发应当是 config，得到 %q", cfg.Type)
 	}
-	if cfg.ReportInterval != defaultReportInterval {
-		t.Errorf("上报间隔应当是 %d，得到 %d", defaultReportInterval, cfg.ReportInterval)
+	if cfg.ReportInterval != DefaultReportInterval {
+		t.Errorf("上报间隔应当是 %d，得到 %d", DefaultReportInterval, cfg.ReportInterval)
 	}
 	if cfg.PingTasks == nil {
 		t.Error("ping_tasks 要是空数组而不是 null，agent 侧直接遍历")

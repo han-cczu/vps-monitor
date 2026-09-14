@@ -93,7 +93,7 @@
 ```
 
 - `report_interval` 单位秒，agent 侧夹取到 1–60；为 0 表示不改。收到后立即生效（下一帧按新间隔）。
-- `ping_tasks` 步骤 09 才执行，本版本只记一条日志。
+- `ping_tasks` 是该节点全部启用任务；每次 config 按 ID 对齐新增、变更和删除，空数组停止全部任务。
 
 ### 1.6 心跳与重连
 
@@ -112,7 +112,7 @@
 | 项 | 行为 |
 |---|---|
 | 鉴权 | 握手时读 `Authorization: Bearer <agent token>` → sha256 → 查 `servers.token_hash`。失败一律 401（查库出错也回 401，不给无效 token 多一个信号） |
-| 连上即下发 | 立刻发一条 `config`：`report_interval: 1`、`ping_tasks: []` |
+| 连上即下发 | 立刻发一条 `config`：`report_interval: 1`、`ping_tasks` 为适用于该节点的启用任务 |
 | 单连接 | 一台节点同时只保留一条连接。新连接进来会把旧的关掉，关闭码 1000、理由 `superseded`。**两个 agent 共用一个 token 会互相踢**，但每条连接活不过 30 秒，退避会一路涨到 60 秒，不会打满 CPU |
 | 沉默超时 | 30 秒没收到任何数据帧就断开（ping 不算数据帧）。正常情况下每秒都有 metrics |
 | 坏消息 | 解不开的 JSON、未知类型只记 WARN 丢弃，不断连接——一条坏消息不该让整台节点掉线 |
@@ -165,7 +165,7 @@
 | 掉线的节点 | 保留最后一次的数值（`cpu` / `mem` / `net` 等不归零），前端置灰显示即可 |
 | 没上报过的节点 | 实时字段是零值，`last_seen` 为 `null` |
 | 服务端刚重启 | 启动时会用 `server_host_info` 表预热 `cores` / `mem.total` / `disk.total` / `v4` / `v6`，所以 agent 还没重连也不会显示成 0；真正从没上报过的节点这些字段才是 0 |
-| `traffic` / `ping` / `core` | 本步恒为 `null` / `[]` / `null`，步骤 18 / 09 / 13 填充；前端按可空处理 |
+| `traffic` / `ping` / `core` | `traffic` / `core` 暂为 `null`；`ping` 是任务摘要数组，无适用任务时为 `[]` |
 | 压缩 | `permessage-deflate`（context takeover），两端都协商 |
 
 `ServerView` 定义在 `server/internal/hub/state.go`，不在 `proto` 包里：`proto` 是 agent 与 server 共享的零依赖包，而快照里带着价格、账期这类只属于面板的字段，agent 不该知道。这条 Go ↔ TypeScript 的契约由 `server/internal/hub/testdata/snapshot.json` 的 golden 测试守着，改字段名会先让测试变红。
@@ -353,3 +353,45 @@ agent 只探测 IPv4 / IPv6 的**可达性**（`ipv4` / `ipv6` 两个布尔列�
 | `server.update` | `server` | 03 | 改节点，`before` / `after` 是改前改后的配置 |
 | `server.delete` | `server` | 03 | 删节点，`before` 是删前的配置 |
 | `server.token_reset` | `server` | 03 | 重置 agent token，前后都不记（避免任何形式的 token 泄漏） |
+
+
+## 5. Ping 任务（步骤 09）
+
+所有 REST 接口需要管理员 JWT。任务以 `sort_order, id` 排序。
+
+| 方法与路径 | 请求 / 响应 |
+|---|---|
+| `GET /api/ping-tasks` | `{tasks: PingTask[]}`，含禁用任务 |
+| `POST /api/ping-tasks` | 创建，201 `{task, pushed}` |
+| `PUT /api/ping-tasks/{id}` | 全量更新可写字段，200 `{task, pushed}` |
+| `DELETE /api/ping-tasks/{id}` | 204；历史结果级联删除 |
+| `GET /api/servers/{id}/ping/recent?n=30` | `{tasks:[{task_id,name,results:[{ts,latency}]}]}`；`n` 为 1–30，默认 30 |
+| `GET /api/servers/{id}/ping/history?task={id}&range=24h` | `{step,from,to,task_id,name,points:[{ts,avg,max,loss}]}` |
+
+PingTask 可写字段：`name`（1–32 字）、`target`（icmp 为 IP/域名，tcp 为 host:port，IPv6 带方括号）、`kind`（icmp/tcp）、`interval_sec`（10–3600）、`server_ids`（null 为全部，包括未来新增节点；[] 为不作用于任何节点；ID 为正数且不能重复）、`enabled`（默认 true）、`sort_order`（±1000000）。响应另含 `id`、`created_at`、`updated_at`。
+
+`pushed` 表示配置已进入多少台在线节点的发送队列，不是探测成功数，也不是 Agent 执行确认。离线节点重连时获取最新配置。API 写库后立即刷新缓存并推送；任务服务每 5 秒复核任务表，补偿短暂数据库错误导致的缓存刷新失败。
+
+Agent 上报：
+
+```json
+{"type":"ping","task_id":1,"ts":1789362482,"latency_ms":12.3}
+```
+
+`latency_ms:null` 表示探测失败或超时。服务端使用接收时刻作为记录时间，仅接受适用于该节点的启用任务。相同 `(server_id, task_id, ts)` 覆盖，不重复计入最近窗口。
+
+快照每任务一项：
+
+```json
+{"task_id":1,"name":"电信","latency":12.3,"loss":3.33,"last_ts":1789362482}
+```
+
+`last_ts:null` 表示尚无探测数据，与 `latency:null` 且 `last_ts` 有值的超时区分。`loss` 为最近最多 30 次实际探测的丢包百分比；没有数据时为 0，但界面显示等待探测。
+
+历史分桶：1h / 24h 每分钟，7d 每 10 分钟，30d 每小时。`avg/max` 只统计成功样本；全丢包桶为 null，`loss=100`；完全没有样本的桶不返回。前端补 null 断开缺测时段，不补成成功或丢包。
+
+`0004_ping.sql` 新增 `ping_tasks` 与 `ping_results`。任务 ID 使用 AUTOINCREMENT，防止删除后复用 ID 时旧的在途结果写到新任务。结果表主键 `(server_id,task_id,ts)`、WITHOUT ROWID，随节点或任务级联删除。默认三网目标为示例地址，需按节点实测调整。新增审计动作 `ping_task.create/update/delete`，目标类型为 `ping_task`。
+
+结果每 5 秒一个事务落库，失败批次放回队列等待重试；已经删除的任务/节点结果跳过，不使整批回滚。待写队列最多 100000 条，超出时丢弃最老结果并记 ERROR。正常关闭会等待最后一次写入，强制杀进程仍可能丢失尚未落库的数据。
+
+启动先清理过期结果并预热窗口；首次 recent 请求会把数据库完整 30 点与已到达的新结果合并，`n` 仅裁剪响应。保留期由 `retention.ping_days` 控制，默认 30 天，有效范围 1–3650；每小时清理。

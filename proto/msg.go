@@ -80,7 +80,7 @@ type Metrics struct {
 	Uptime   int64      `json:"uptime"` // 秒
 }
 
-// PingTask 是服务端下发的一条 ping 任务（步骤 09 才真正执行）。
+// PingTask 是服务端下发的一条 ping 任务，agent 收到 config 后整体对齐。
 type PingTask struct {
 	ID       int64  `json:"id"`
 	Name     string `json:"name"`

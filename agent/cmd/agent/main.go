@@ -20,6 +20,7 @@ import (
 
 	"vpsmon/agent/internal/collector"
 	"vpsmon/agent/internal/config"
+	"vpsmon/agent/internal/ping"
 	"vpsmon/agent/internal/transport"
 	"vpsmon/proto"
 )
@@ -80,7 +81,25 @@ func run(configPath string, once bool) error {
 	var reportInterval atomic.Int64
 	reportInterval.Store(int64(cfg.ReportInterval))
 
-	client := transport.New(transport.Options{
+	// ping 调度器。结果直接经 WebSocket 回报；没连上就丢弃这一条——
+	// 攒着等重连没有意义，面板要的是「现在通不通」。
+	var client *transport.Client
+	pinger := ping.New(func(r ping.Result) {
+		if client == nil {
+			return
+		}
+		if err := client.Send(proto.PingResult{
+			Type:      proto.TypePing,
+			TaskID:    r.TaskID,
+			TS:        r.TS,
+			LatencyMS: r.LatencyMS,
+		}); err != nil && !errors.Is(err, transport.ErrNotConnected) {
+			slog.Warn("上报 ping 结果失败", "task_id", r.TaskID, "err", err)
+		}
+	})
+	defer pinger.Stop()
+
+	client = transport.New(transport.Options{
 		Server:  cfg.Server,
 		Token:   cfg.Token,
 		Version: version,
@@ -93,7 +112,7 @@ func run(configPath string, once bool) error {
 			}
 		},
 		OnMessage: func(msgType string, raw []byte) {
-			handleMessage(msgType, raw, &reportInterval)
+			handleMessage(msgType, raw, &reportInterval, pinger)
 		},
 	})
 
@@ -178,9 +197,8 @@ func sampleLoop(ctx context.Context, sampler *collector.Sampler, client *transpo
 	}
 }
 
-// handleMessage 处理服务端下发的消息。本步只认 config 的 report_interval，
-// ping 任务留给步骤 09、core.* 留给步骤 11/13。
-func handleMessage(msgType string, raw []byte, interval *atomic.Int64) {
+// handleMessage 对齐上报间隔和 ping 任务；core.* 留给步骤 11/13。
+func handleMessage(msgType string, raw []byte, interval *atomic.Int64, pinger *ping.Scheduler) {
 	switch msgType {
 	case proto.TypeConfig:
 		var c proto.Config
@@ -195,9 +213,9 @@ func handleMessage(msgType string, raw []byte, interval *atomic.Int64) {
 			}
 			interval.Store(int64(next))
 		}
-		if len(c.PingTasks) > 0 {
-			slog.Info("收到 ping 任务，本版本尚未执行（步骤 09）", "count", len(c.PingTasks))
-		}
+		// 每次 config 都整体对齐一次，包括「一个任务都没有」——那表示全部停掉。
+		// 服务端在任务增删改之后会主动重发 config，所以不需要重连也能生效。
+		pinger.Apply(context.Background(), c.PingTasks)
 	default:
 		slog.Warn("收到暂不支持的消息类型", "type", msgType)
 	}

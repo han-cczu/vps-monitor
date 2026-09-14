@@ -22,6 +22,7 @@ const ServerDetailPage = lazy(() => import('src/pages/dashboard/server-detail'))
 const ProxyPage = lazy(() => import('src/pages/dashboard/proxy'));
 const SubscribersPage = lazy(() => import('src/pages/dashboard/subscribers'));
 const AlertsPage = lazy(() => import('src/pages/dashboard/alerts'));
+const PingTasksPage = lazy(() => import('src/pages/dashboard/settings/ping-tasks'));
 const SettingsAccountPage = lazy(() => import('src/pages/dashboard/settings/account'));
 
 // ----------------------------------------------------------------------
@@ -65,9 +66,10 @@ export const dashboardRoutes: RouteObject[] = [
       {
         path: 'settings',
         children: [
-          // 设置目前只有"账号"一页，进来直接跳过去；步骤 20 加 TOTP / 审计 / 备份后再做总览
+          // 设置默认进入账号页，其他设置从页内标签进入。
           { index: true, element: <Navigate to={paths.dashboard.settings.account} replace /> },
           { path: 'account', element: <SettingsAccountPage /> },
+          { path: 'ping-tasks', element: <PingTasksPage /> },
         ],
       },
     ],

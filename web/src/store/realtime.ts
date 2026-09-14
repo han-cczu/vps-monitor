@@ -74,7 +74,7 @@ export const useRealtimeStatus = () => useRealtime((state) => state.status);
  *
  * **ServerSnapshot 每加一个字段，这里必须同步加上**——漏掉的字段变化时，
  * 这个函数会判定「没变」而复用旧对象，卡片被 memo 拦住，界面就静默地停在旧值上，
- * 而且不会有任何报错。traffic（步骤 18）/ ping（09）/ core（13）现在恒为空，
+ * 而且不会有任何报错。traffic（步骤 18）/ core（13）现在恒为空，
  * 也照样列进来，就是为了那天填上数据时不用记得回来改这里。
  *
  * 嵌套对象逐字段展开，不用 JSON.stringify——十几台节点每秒一次，字符串化的开销大得多。
@@ -114,12 +114,22 @@ function isSameServer(a: ServerSnapshot, b: ServerSnapshot): boolean {
     a.expire_at === b.expire_at &&
     a.traffic === b.traffic &&
     a.core === b.core &&
-    isSameList(a.ping, b.ping) &&
+    a.ping.length === b.ping.length &&
+    a.ping.every((item, i) => {
+      const other = b.ping[i];
+      return (
+        item.task_id === other.task_id &&
+        item.name === other.name &&
+        item.latency === other.latency &&
+        item.loss === other.loss &&
+        item.last_ts === other.last_ts
+      );
+    }) &&
     isSameList(a.tags, b.tags)
   );
 }
 
-/** 逐项按引用比。标签是字符串，ping 结果是对象——服务端每帧重新构造，引用不同即视为有变化。 */
+/** 标签等原始值列表逐项比较；ping 对象在上面按字段比较。 */
 function isSameList(a: readonly unknown[], b: readonly unknown[]): boolean {
   return a.length === b.length && a.every((item, index) => item === b[index]);
 }

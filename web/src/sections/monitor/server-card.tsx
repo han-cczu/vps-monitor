@@ -8,6 +8,7 @@ import { formatBytes } from 'src/utils/format';
 import { useServer } from 'src/store/realtime';
 
 import { NetRow } from './net-row';
+import { PingRows } from './ping-rows';
 import { StatBlock } from './stat-block';
 import { CardHeader } from './card-header';
 import { TotalsRow, CardFooter, TrafficRow } from './card-rows';
@@ -87,14 +88,13 @@ export const ServerCard = memo(function ServerCard({ id }: Props) {
       </Box>
 
       {/* 离线后这两个速率是最后一帧的旧值，继续当实时值显示会误导；置零让折线自然走平 */}
-      <NetRow
-        up={server.online ? server.net.up : 0}
-        down={server.online ? server.net.down : 0}
-      />
+      <NetRow up={server.online ? server.net.up : 0} down={server.online ? server.net.down : 0} />
 
       <TotalsRow outTotal={server.net.out_total} inTotal={server.net.in_total} />
 
       <TrafficRow traffic={server.traffic} />
+
+      <PingRows serverID={server.id} tasks={server.ping} online={server.online} />
 
       <CardFooter server={server} />
     </Card>

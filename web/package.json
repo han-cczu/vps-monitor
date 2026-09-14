@@ -18,7 +18,8 @@
     "re:build-npm": "npm run clean && npm install && npm run build",
     "tsc:watch": "tsc --noEmit --watch",
     "tsc:print": "tsc --showConfig",
-    "tsc:check": "tsc --noEmit --pretty"
+    "tsc:check": "tsc --noEmit --pretty",
+    "test": "node --test tests/*.test.mjs"
   },
   "engines": {
     "node": ">=24.0.0"

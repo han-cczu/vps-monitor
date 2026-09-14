@@ -60,6 +60,9 @@ type Registry struct {
 	db  configLister
 	now func() time.Time
 
+	// pingSource 由 ping 服务在装配时挂上；没挂时快照里的 ping 恒为空数组。
+	pingSource func(serverID int64) []PingView
+
 	cacheMu sync.Mutex
 	cache   []store.Server
 	cacheAt time.Time
@@ -150,6 +153,11 @@ func (r *Registry) WarmHostInfo(ctx context.Context) error {
 		})
 	}
 	return nil
+}
+
+// SetPingSource 挂上 ping 数据源。启动装配时调一次。
+func (r *Registry) SetPingSource(fn func(serverID int64) []PingView) {
+	r.pingSource = fn
 }
 
 // Remove 删掉一台节点的内存态（节点被删除时调用）。
@@ -292,10 +300,26 @@ type ServerView struct {
 	Currency  string  `json:"currency"`
 	Cycle     string  `json:"cycle"`
 
-	// 后续步骤填充，本步恒为 null / 空数组，前端按可空处理。
-	Traffic any   `json:"traffic"` // 步骤 18
-	Ping    []any `json:"ping"`    // 步骤 09
-	Core    any   `json:"core"`    // 步骤 13
+	// 字段顺序按 docs/plan/06 §4.6 的示例来：traffic、ping、core。
+	// golden 测试比的是完整 JSON 字符串，换顺序它会红。
+	Traffic any `json:"traffic"` // 步骤 18 填充，现在恒为 null
+	// 延迟任务（步骤 09）。没有适用任务时是空数组；尚无结果用 last_ts=null 表示。
+	Ping []PingView `json:"ping"`
+	Core any        `json:"core"` // 步骤 13 填充，现在恒为 null
+}
+
+// PingView 是快照里的一条延迟信息。
+//
+// 方块序列（最近 30 次）不进快照：那是每台节点每任务 30 个点，每秒广播一遍太浪费，
+// 前端用 /api/servers/{id}/ping/recent 单独拉，一分钟刷一次。
+type PingView struct {
+	TaskID int64  `json:"task_id"`
+	Name   string `json:"name"`
+	// 最近一次的延迟，毫秒；丢包为 null
+	Latency *float64 `json:"latency"`
+	// 最近窗口内的丢包率，0–100
+	Loss   float64 `json:"loss"`
+	LastTS *int64  `json:"last_ts"` // nil 表示尚未收到探测结果
 }
 
 // Snapshot 是广播帧。
@@ -347,10 +371,16 @@ func (r *Registry) viewFor(s *store.Server) ServerView {
 		Currency:  s.Currency,
 		Cycle:     s.BillingCycle,
 
-		Ping: []any{},
+		Ping: []PingView{},
 	}
 	if v.Tags == nil {
 		v.Tags = []string{}
+	}
+
+	if r.pingSource != nil {
+		if views := r.pingSource(s.ID); views != nil {
+			v.Ping = views
+		}
 	}
 
 	st, ok := r.Get(s.ID)

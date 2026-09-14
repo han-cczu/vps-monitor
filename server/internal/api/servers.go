@@ -267,6 +267,9 @@ func (d *Deps) deleteServer(w http.ResponseWriter, r *http.Request) {
 
 	d.Hub.Disconnect(before.ID, "server deleted")
 	d.Hub.Remove(before.ID)
+	if d.Ping != nil {
+		d.Ping.Forget(before.ID)
+	}
 	d.Hub.InvalidateConfig()
 
 	w.WriteHeader(http.StatusNoContent)

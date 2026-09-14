@@ -16,8 +16,13 @@ import { CustomBreadcrumbs } from 'src/components/custom-breadcrumbs';
 
 // ----------------------------------------------------------------------
 
-// 单管理员面板只保留安全设置；TOTP 在步骤 20 加进来
+// 设置共享导航；TOTP 在步骤 20 加进来。
 const NAV_ITEMS = [
+  {
+    label: 'Ping 任务',
+    href: paths.dashboard.settings.pingTasks,
+    icon: <Iconify width={24} icon="solar:list-bold" />,
+  },
   {
     label: '安全',
     icon: <Iconify width={24} icon="ic:round-vpn-key" />,
@@ -33,8 +38,11 @@ export function AccountLayout({ children, ...other }: DashboardContentProps) {
   return (
     <DashboardContent {...other}>
       <CustomBreadcrumbs
-        heading="账号"
-        links={[{ name: '设置', href: paths.dashboard.settings.root }, { name: '账号' }]}
+        heading="设置"
+        links={[
+          { name: '设置', href: paths.dashboard.settings.root },
+          { name: pathname === paths.dashboard.settings.pingTasks ? 'Ping 任务' : '账号' },
+        ]}
         sx={{ mb: 3 }}
       />
 

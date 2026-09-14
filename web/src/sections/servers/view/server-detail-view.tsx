@@ -25,6 +25,7 @@ import { ServerCard } from 'src/sections/monitor/server-card';
 
 import { HISTORY_RANGES } from 'src/types/history';
 
+import { PingCharts } from '../detail/ping-charts';
 import { HistoryCharts } from '../detail/history-charts';
 import { HostInfoPanel } from '../detail/host-info-panel';
 
@@ -36,6 +37,7 @@ export function ServerDetailView() {
   const serverID = Number(id);
 
   const [range, setRange] = useState<HistoryRange>('24h');
+  const [tab, setTab] = useState<'metrics' | 'ping'>('metrics');
 
   // 节点的配置与主机信息走 REST；实时数值由卡片自己从 WebSocket store 订阅。
   const { servers, serversLoading } = useServers();
@@ -89,8 +91,24 @@ export function ServerDetailView() {
           <HostInfoPanel host={server.host} />
         </Box>
 
+        <Tabs
+          value={tab}
+          onChange={(_, value: 'metrics' | 'ping') => setTab(value)}
+          aria-label="监控类型"
+        >
+          <Tab value="metrics" label="资源" />
+          <Tab value="ping" label="延迟" />
+        </Tabs>
         <Card sx={{ px: 2.5, pt: 1 }}>
-          <Box sx={{ gap: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box
+            sx={{
+              gap: 1,
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
             <Tabs value={range} onChange={(_, value: HistoryRange) => setRange(value)}>
               {HISTORY_RANGES.map((item) => (
                 <Tab key={item.value} value={item.value} label={item.label} />
@@ -98,12 +116,24 @@ export function ServerDetailView() {
             </Tabs>
 
             <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-              {history?.step === 3600 ? '每小时一个点' : '每分钟一个点'}
+              {tab === 'ping'
+                ? range === '30d'
+                  ? '每小时一个点'
+                  : range === '7d'
+                    ? '每 10 分钟一个点'
+                    : '每分钟一个点'
+                : history?.step === 3600
+                  ? '每小时一个点'
+                  : '每分钟一个点'}
             </Typography>
           </Box>
         </Card>
 
-        <HistoryCharts history={history} loading={historyLoading} />
+        {tab === 'ping' ? (
+          <PingCharts serverID={serverID} range={range} />
+        ) : (
+          <HistoryCharts history={history} loading={historyLoading} />
+        )}
       </Box>
     </DashboardContent>
   );

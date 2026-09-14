@@ -21,6 +21,7 @@ import (
 	"vpsmon/server/internal/auth"
 	"vpsmon/server/internal/config"
 	"vpsmon/server/internal/hub"
+	"vpsmon/server/internal/ping"
 	"vpsmon/server/internal/store"
 )
 
@@ -44,7 +45,8 @@ type Deps struct {
 
 	// Hub 是实时状态中心。为 nil 时两个 WS 端点不注册、REST 里的 online 恒为 false，
 	// 单元测试就是这么跑的（hub 的行为由 hub 包自己的测试覆盖）。
-	Hub *hub.Hub
+	Hub  *hub.Hub
+	Ping *ping.Service
 
 	// verifySem 由 NewRouter 初始化，限制并发密码校验数。
 	verifySem chan struct{}
@@ -97,6 +99,12 @@ func NewRouter(deps Deps) http.Handler {
 			protected.Delete("/servers/{id}", d.deleteServer)
 			protected.Post("/servers/{id}/token", d.resetServerToken)
 			protected.Get("/servers/{id}/history", d.history)
+			protected.Get("/ping-tasks", d.listPingTasks)
+			protected.Post("/ping-tasks", d.createPingTask)
+			protected.Put("/ping-tasks/{id}", d.updatePingTask)
+			protected.Delete("/ping-tasks/{id}", d.deletePingTask)
+			protected.Get("/servers/{id}/ping/recent", d.pingRecent)
+			protected.Get("/servers/{id}/ping/history", d.pingHistory)
 		})
 
 		api.NotFound(func(w http.ResponseWriter, _ *http.Request) {

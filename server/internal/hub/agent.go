@@ -34,8 +34,8 @@ const (
 	// agentMaxMessage 是允许 agent 发上来的单帧上限，和 agent 侧的读上限对齐。
 	agentMaxMessage = 1 << 20
 
-	// defaultReportInterval 是连上后下发给 agent 的上报间隔（秒）。
-	defaultReportInterval = 1
+	// DefaultReportInterval 是连上后下发给 agent 的上报间隔（秒）。
+	DefaultReportInterval = 1
 )
 
 // maxLoggedString 是写进日志的对端可控字符串的长度上限。
@@ -66,6 +66,10 @@ type AgentHub struct {
 
 	hookMu sync.RWMutex
 	hooks  []MetricsHook
+	// onPing 由 ping 服务在装配时挂上；没挂时 ping 消息只记一条 WARN
+	onPing func(serverID int64, raw []byte)
+	// buildConfig 决定连上时下发什么 config；没设时只下发上报间隔
+	buildConfig func(serverID int64) any
 }
 
 // agentConn 是一条 agent 连接。写统一走 send 通道，由 writeLoop 串行发出，
@@ -94,6 +98,22 @@ func NewAgentHub(db agentStore, reg *Registry, bus *Bus) *AgentHub {
 func (h *AgentHub) OnMetrics(fn MetricsHook) {
 	h.hookMu.Lock()
 	h.hooks = append(h.hooks, fn)
+	h.hookMu.Unlock()
+}
+
+// OnPing 注册 ping 结果的处理器。只在启动装配时调用。
+func (h *AgentHub) OnPing(fn func(serverID int64, raw []byte)) {
+	h.hookMu.Lock()
+	h.onPing = fn
+	h.hookMu.Unlock()
+}
+
+// SetConfigBuilder 设置「agent 连上时下发什么 config」。
+//
+// 每台节点收到的任务列表不一样（ping 任务可以指定作用范围），所以是按 serverID 组装。
+func (h *AgentHub) SetConfigBuilder(fn func(serverID int64) any) {
+	h.hookMu.Lock()
+	h.buildConfig = fn
 	h.hookMu.Unlock()
 }
 
@@ -160,12 +180,8 @@ func (h *AgentHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	go ac.writeLoop(ctx)
 
-	// 连上先把运行参数下发过去，agent 收到后会按这个间隔上报。
-	h.SendTo(s.ID, proto.Config{
-		Type:           proto.TypeConfig,
-		ReportInterval: defaultReportInterval,
-		PingTasks:      []proto.PingTask{},
-	})
+	// 连上先把运行参数下发过去，agent 收到后会按这个间隔上报、并把 ping 任务对齐。
+	h.SendTo(s.ID, h.configFor(s.ID))
 
 	err = h.readLoop(ctx, ac)
 	slog.Info("agent disconnected", "server_id", s.ID, "name", s.Name, "err", err)
@@ -201,6 +217,15 @@ func (h *AgentHub) dispatch(ctx context.Context, serverID int64, raw []byte) {
 		h.handleHello(ctx, serverID, raw)
 	case proto.TypeMetrics:
 		h.handleMetrics(serverID, raw)
+	case proto.TypePing:
+		h.hookMu.RLock()
+		onPing := h.onPing
+		h.hookMu.RUnlock()
+		if onPing == nil {
+			slog.Warn("收到 ping 结果但没有处理器", "server_id", serverID)
+			return
+		}
+		onPing(serverID, raw)
 	case proto.TypeError:
 		var e proto.Error
 		if err := json.Unmarshal(raw, &e); err != nil {
@@ -210,7 +235,7 @@ func (h *AgentHub) dispatch(ctx context.Context, serverID int64, raw []byte) {
 		slog.Warn("agent 回报执行失败", "server_id", serverID,
 			"op", truncate(e.Op), "message", truncate(e.Message))
 	default:
-		// ping（09）、core.*（11/13）到对应步骤再注册处理器。
+		// core.*（11/13）到对应步骤再注册处理器。
 		slog.Warn("agent 消息类型暂未处理", "server_id", serverID, "type", truncate(env.Type))
 	}
 }
@@ -294,6 +319,24 @@ func (h *AgentHub) handleMetrics(serverID int64, raw []byte) {
 	}
 }
 
+// configFor 组装下发给某台节点的 config。没挂 buildConfig 时退化成「只设上报间隔」。
+func (h *AgentHub) configFor(serverID int64) any {
+	h.hookMu.RLock()
+	build := h.buildConfig
+	h.hookMu.RUnlock()
+
+	if build != nil {
+		if cfg := build(serverID); cfg != nil {
+			return cfg
+		}
+	}
+	return proto.Config{
+		Type:           proto.TypeConfig,
+		ReportInterval: DefaultReportInterval,
+		PingTasks:      []proto.PingTask{},
+	}
+}
+
 // register 挂上新连接；同一台节点已有连接时先把旧的踢掉（一台机器只该有一个 agent）。
 func (h *AgentHub) register(ac *agentConn) {
 	h.mu.Lock()
@@ -371,6 +414,27 @@ func (h *AgentHub) Disconnect(serverID int64, reason string) bool {
 	h.detach(ac)
 	ac.close(websocket.StatusNormalClosure, reason)
 	return true
+}
+
+// Broadcast 给每个在线 agent 各自组装一条消息并下发，返回发出去的条数。
+//
+// ping 任务增删改之后用它推送新的 config：每台节点收到的任务列表不一样
+// （任务可以指定作用范围），所以是「每连接调一次 build」而不是发同一份。
+func (h *AgentHub) Broadcast(build func(serverID int64) any) int {
+	h.mu.Lock()
+	ids := make([]int64, 0, len(h.conns))
+	for id := range h.conns {
+		ids = append(ids, id)
+	}
+	h.mu.Unlock()
+
+	sent := 0
+	for _, id := range ids {
+		if msg := build(id); msg != nil && h.SendTo(id, msg) {
+			sent++
+		}
+	}
+	return sent
 }
 
 // Connected 报告一台节点当前是否有活着的 agent 连接。
