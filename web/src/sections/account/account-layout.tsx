@@ -29,6 +29,11 @@ const NAV_ITEMS = [
     icon: <Iconify width={24} icon="solar:list-bold" />,
   },
   {
+    label: '订阅模板',
+    href: paths.dashboard.settings.subscription,
+    icon: <Iconify width={24} icon="solar:list-bold" />,
+  },
+  {
     label: '代理核心',
     href: paths.dashboard.settings.corefiles,
     icon: <Iconify width={24} icon="solar:list-bold" />,

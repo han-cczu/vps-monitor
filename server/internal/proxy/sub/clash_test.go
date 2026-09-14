@@ -62,6 +62,9 @@ func TestClashProtocolsQuotedSecretsAndTemplate(t *testing.T) {
 	if err = ValidateClashTemplate(DefaultClashTemplate); err != nil {
 		t.Fatal(err)
 	}
+	if ValidateClashTemplate("{{PROXIES}}\nname: {{PROXY_NAMES}}\n") == nil {
+		t.Fatal("template breaks with multiple proxy names")
+	}
 	provider, err := RenderClashProvider(nil)
 	if err != nil || strings.TrimSpace(string(provider)) != "proxies: []" {
 		t.Fatalf("empty provider %q %v", provider, err)

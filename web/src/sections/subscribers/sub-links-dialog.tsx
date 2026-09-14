@@ -19,6 +19,17 @@ import { CopyField, ActionDialog } from '../proxy/shared';
 
 export const SUB_FORMATS = [
   {
+    value: 'singbox',
+    label: 'sing-box',
+    description: '仅 outbounds 片段，合并到自己的 sing-box 配置；HY2/TUIC 内嵌证书验证。',
+  },
+  {
+    value: 'uri',
+    label: 'URI',
+    description:
+      'Base64 URI 列表，适用于 Shadowrocket/NekoBox 等兼容客户端。TUIC URI 不校验证书；HY2 需要客户端支持 pinSHA256。',
+  },
+  {
     value: 'clash',
     label: 'Clash',
     description: '适用于支持四协议的 mihomo 客户端，如 Clash Verge Rev。',

@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
+	"vpsmon/server/internal/clock"
 	"vpsmon/server/internal/proxy"
 	"vpsmon/server/internal/store"
 )
@@ -111,6 +114,39 @@ func TestSubscriptionLifecycleCacheHeadersLogs(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "subscriber_id") {
 		t.Fatal("missing subscriber metadata")
+	}
+}
+
+func TestSubscriptionPanelTimezone(t *testing.T) {
+	previous := clock.Location()
+	clock.SetLocation(time.FixedZone("panel", 8*3600))
+	defer clock.SetLocation(previous)
+	fixed := time.Date(2026, 9, 14, 20, 0, 0, 0, time.UTC)
+	e := newTestEnv(t, func(d *Deps) { d.subscriptionNow = func() time.Time { return fixed } })
+	ctx := context.Background()
+	service := proxy.New(e.db, proxy.NoopNotifier{})
+	name := "timezone"
+	subscriber, err := service.SaveSubscriber(ctx, 0, proxy.SubscriberInput{Name: &name, ExpireAt: json.RawMessage(`"2026-09-16"`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := e.srv.Client().Get(e.srv.URL + "/sub/" + subscriber.SubToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	expected := time.Date(2026, 9, 17, 0, 0, 0, 0, clock.Location()).Unix()
+	if !strings.Contains(response.Header.Get("subscription-userinfo"), fmt.Sprintf("expire=%d", expected)) {
+		t.Fatal("expiry did not use panel timezone")
+	}
+	token := e.adminToken(t)
+	resp, data := e.do(t, "GET", fmt.Sprintf("/api/subscribers/%d/traffic", subscriber.ID), token, nil)
+	if resp.StatusCode != 200 {
+		t.Fatal("traffic request failed")
+	}
+	daily := data["daily"].([]any)
+	if daily[len(daily)-1].(map[string]any)["date"] != "2026-09-15" {
+		t.Fatal("daily date used OS timezone")
 	}
 }
 

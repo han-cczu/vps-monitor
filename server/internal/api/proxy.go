@@ -23,6 +23,7 @@ func (d *Deps) proxyRoutes(r chi.Router) {
 			})
 		})
 		r.Get("/servers/{id}/inbounds", d.proxyListInbounds)
+		r.Get("/servers/{id}/subscriber-traffic", d.nodeSubscriberTraffic)
 		r.Post("/servers/{id}/inbounds", d.proxyCreateInbound)
 		r.Get("/inbounds/{id}", d.proxyGetInbound)
 		r.Put("/inbounds/{id}", d.proxyUpdateInbound)
@@ -32,6 +33,9 @@ func (d *Deps) proxyRoutes(r chi.Router) {
 		r.Post("/servers/{id}/cert/regenerate", d.proxyRegenerateCert)
 		r.Get("/servers/{id}/advanced", d.proxyGetAdvanced)
 		r.Put("/servers/{id}/advanced", d.proxyPutAdvanced)
+		r.Post("/servers/{id}/advanced/check", d.checkAdvanced)
+		r.Post("/servers/{id}/advanced/relay", d.relayAdvanced)
+		r.Delete("/servers/{id}/advanced/relay", d.removeRelayAdvanced)
 		r.Get("/servers/{id}/core", d.proxyGetCore)
 		d.coreRoutes(r)
 		r.Get("/subscribers", d.proxyListSubscribers)
@@ -65,6 +69,8 @@ func proxyError(w http.ResponseWriter, err error) bool {
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, 404, "节点、入站或订阅用户不存在")
 	case errors.Is(err, proxy.ErrConflict):
+		writeError(w, 409, err.Error())
+	case errors.Is(err, proxy.ErrAdvancedChanged):
 		writeError(w, 409, err.Error())
 	default:
 		serverError(w, "proxy operation", err)
@@ -223,7 +229,7 @@ func (d *Deps) proxyPutAdvanced(w http.ResponseWriter, r *http.Request) {
 	if !decodeProxy(w, r, &in, false) {
 		return
 	}
-	advanced, err := d.Proxy.SaveAdvanced(r.Context(), id, in.ExtraJSON)
+	advanced, err := d.Proxy.SaveAdvancedChecked(r.Context(), id, in.ExtraJSON, d.AdvancedCheck)
 	if proxyError(w, err) {
 		return
 	}
@@ -252,6 +258,15 @@ func (d *Deps) proxyListSubscribers(w http.ResponseWriter, r *http.Request) {
 	items, err := d.Proxy.Subscribers(r.Context())
 	if proxyError(w, err) {
 		return
+	}
+	if r.URL.Query().Get("include_relay") != "1" {
+		filtered := make([]*store.Subscriber, 0, len(items))
+		for _, item := range items {
+			if item.Kind != "relay" {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
 	}
 	writeJSON(w, 200, map[string]any{"subscribers": items})
 }

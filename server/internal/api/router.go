@@ -55,14 +55,16 @@ type Deps struct {
 
 	// Hub 是实时状态中心。为 nil 时两个 WS 端点不注册、REST 里的 online 恒为 false，
 	// 单元测试就是这么跑的（hub 的行为由 hub 包自己的测试覆盖）。
-	Hub           *hub.Hub
-	Ping          *ping.Service
-	CoreFiles     *corefiles.Store
-	Proxy         *proxy.Service
-	Reconciler    *proxy.Reconciler
-	Traffic       *traffic.Accountant
-	coreSlots     chan struct{}
-	subscriptions *subscriptionCache
+	Hub             *hub.Hub
+	Ping            *ping.Service
+	CoreFiles       *corefiles.Store
+	Proxy           *proxy.Service
+	Reconciler      *proxy.Reconciler
+	Traffic         *traffic.Accountant
+	AdvancedCheck   proxy.AdvancedChecker
+	coreSlots       chan struct{}
+	subscriptions   *subscriptionCache
+	subscriptionNow func() time.Time
 
 	// verifySem 由 NewRouter 初始化，限制并发密码校验数。
 	verifySem chan struct{}
@@ -77,6 +79,9 @@ func NewRouter(deps Deps) http.Handler {
 	d.verifySem = make(chan struct{}, maxConcurrentVerify)
 	d.coreSlots = make(chan struct{}, 2)
 	d.subscriptions = newSubscriptionCache()
+	if d.AdvancedCheck == nil && d.CoreFiles != nil {
+		d.AdvancedCheck = d.CoreFiles.CheckConfigDetailed
+	}
 	if d.Proxy == nil {
 		d.Proxy = proxy.New(d.DB, proxy.NoopNotifier{})
 	}

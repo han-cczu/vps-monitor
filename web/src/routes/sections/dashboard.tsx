@@ -30,6 +30,7 @@ const PingTasksPage = lazy(() => import('src/pages/dashboard/settings/ping-tasks
 const CoreFilesPage = lazy(() => import('src/pages/dashboard/settings/corefiles'));
 const SettingsSitePage = lazy(() => import('src/pages/dashboard/settings/site'));
 const SettingsAuditPage = lazy(() => import('src/pages/dashboard/settings/audit'));
+const SubscriptionSettingsPage = lazy(() => import('src/pages/dashboard/settings/subscription'));
 const SettingsAccountPage = lazy(() => import('src/pages/dashboard/settings/account'));
 
 // ----------------------------------------------------------------------
@@ -94,6 +95,7 @@ export const dashboardRoutes: RouteObject[] = [
           { path: 'audit', element: <SettingsAuditPage /> },
           { path: 'ping-tasks', element: <PingTasksPage /> },
           { path: 'corefiles', element: <CoreFilesPage /> },
+          { path: 'subscription', element: <SubscriptionSettingsPage /> },
         ],
       },
     ],

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"vpsmon/server/internal/clock"
 	"vpsmon/server/internal/proxy/sub"
 	"vpsmon/server/internal/store"
 )
@@ -77,7 +78,7 @@ func (d *Deps) subscription(w http.ResponseWriter, r *http.Request) {
 	// Public requests never log the token, URL, rendered body or credentials.
 	defer slog.Info("subscription access", "subscriber_id", subscriber.ID)
 	hash := sha256.Sum256([]byte(token))
-	now := time.Now()
+	now := d.subNow()
 	if !d.subscriptions.allow(hash, now) {
 		w.Header().Set("Retry-After", "60")
 		w.WriteHeader(429)
@@ -87,7 +88,7 @@ func (d *Deps) subscription(w http.ResponseWriter, r *http.Request) {
 	if format == "" {
 		format = "clash"
 	}
-	if format != "clash" && format != "clash-provider" {
+	if format != "clash" && format != "clash-provider" && format != "singbox" && format != "uri" {
 		writeError(w, 400, "不支持的订阅格式")
 		return
 	}
@@ -96,14 +97,24 @@ func (d *Deps) subscription(w http.ResponseWriter, r *http.Request) {
 		info += fmt.Sprintf("; total=%d", subscriber.TrafficLimit)
 	}
 	if subscriber.ExpireAt != nil {
-		if expiry, parseErr := time.ParseInLocation(time.DateOnly, *subscriber.ExpireAt, time.Local); parseErr == nil {
+		if expiry, parseErr := time.ParseInLocation(time.DateOnly, *subscriber.ExpireAt, clock.Location()); parseErr == nil {
 			info += fmt.Sprintf("; expire=%d", expiry.AddDate(0, 0, 1).Unix())
 		}
 	}
 	w.Header().Set("subscription-userinfo", info)
 	w.Header().Set("profile-update-interval", "24")
-	w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
-	w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.PathEscape(subscriber.Name)+".yaml")
+	extension := ".yaml"
+	contentType := "text/yaml; charset=utf-8"
+	if format == "singbox" {
+		extension = ".json"
+		contentType = "application/json"
+	}
+	if format == "uri" {
+		extension = ".txt"
+		contentType = "text/plain; charset=utf-8"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.PathEscape(subscriber.Name)+extension)
 	key := fmt.Sprintf("%x:%s", hash, format)
 	c := d.subscriptions
 	c.mu.Lock()
@@ -116,7 +127,11 @@ func (d *Deps) subscription(w http.ResponseWriter, r *http.Request) {
 	proxies, err := sub.Collect(r.Context(), d.DB, *subscriber)
 	var body []byte
 	if err == nil {
-		if format == "clash-provider" {
+		if format == "singbox" {
+			body, err = sub.RenderSingbox(proxies)
+		} else if format == "uri" {
+			body, err = sub.RenderURI(proxies)
+		} else if format == "clash-provider" {
 			body, err = sub.RenderClashProvider(proxies)
 		} else {
 			template := sub.DefaultClashTemplate
@@ -131,7 +146,7 @@ func (d *Deps) subscription(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		return
 	}
-	if reason := sub.DisabledReason(*subscriber); reason != "" {
+	if reason := sub.DisabledReason(*subscriber); reason != "" && (format == "clash" || format == "clash-provider") {
 		body = append([]byte("# 已停用："+reason+"\n"), body...)
 	}
 	c.mu.Lock()
@@ -157,9 +172,16 @@ func (d *Deps) subscriberTraffic(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	traffic, err := d.DB.SubscriberTraffic(r.Context(), id, time.Now())
+	traffic, err := d.DB.SubscriberTraffic(r.Context(), id, d.subNow())
 	if proxyError(w, err) {
 		return
 	}
 	writeJSON(w, 200, traffic)
+}
+
+func (d *Deps) subNow() time.Time {
+	if d.subscriptionNow != nil {
+		return d.subscriptionNow().In(clock.Location())
+	}
+	return clock.Now()
 }

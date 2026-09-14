@@ -13,6 +13,7 @@ import (
 
 type Inbound = model.Inbound
 type Subscriber struct {
+	Kind             string       `json:"kind"`
 	ID               int64        `json:"id"`
 	Name             string       `json:"name"`
 	Note             string       `json:"note"`
@@ -194,11 +195,11 @@ func (q ProxyQueries) Core(ctx context.Context, id int64) (*NodeCore, error) {
 	return c, nil
 }
 
-const subscriberFields = `id,name,note,enabled,auto_disabled,traffic_limit,traffic_used,reset_day,period_start,expire_at,created_at,updated_at,warn80_sent`
+const subscriberFields = `id,name,note,enabled,auto_disabled,traffic_limit,traffic_used,reset_day,period_start,expire_at,created_at,updated_at,warn80_sent,kind`
 
 func scanSubscriber(row scanner, detail bool) (*Subscriber, error) {
 	s := &Subscriber{AssignedInbounds: []Assignment{}}
-	args := []any{&s.ID, &s.Name, &s.Note, &s.Enabled, &s.AutoDisabled, &s.TrafficLimit, &s.TrafficUsed, &s.ResetDay, &s.PeriodStart, &s.ExpireAt, &s.CreatedAt, &s.UpdatedAt, &s.Warn80Sent}
+	args := []any{&s.ID, &s.Name, &s.Note, &s.Enabled, &s.AutoDisabled, &s.TrafficLimit, &s.TrafficUsed, &s.ResetDay, &s.PeriodStart, &s.ExpireAt, &s.CreatedAt, &s.UpdatedAt, &s.Warn80Sent, &s.Kind}
 	if detail {
 		args = append(args, &s.SubToken, &s.UUID, &s.Password, &s.SSUserKey)
 	}
