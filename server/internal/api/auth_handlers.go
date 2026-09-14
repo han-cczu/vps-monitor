@@ -281,6 +281,7 @@ func (d *Deps) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	d.MFA.Clear(user.ID)
 	// 密码哈希不进审计，只记"改了"
 	audit.Record(r.Context(), d.DB, "auth.password_change", "user", strconv.FormatInt(user.ID, 10), nil, nil)
 	slog.Info("password changed", "username", user.Username)

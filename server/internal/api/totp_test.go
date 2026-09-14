@@ -56,7 +56,7 @@ func TestTOTPEnrollmentMFAAndPersistentReplay(t *testing.T) {
 		t.Fatal("ticket reused")
 	}
 	// SQLite rejects reuse independent of the in-memory ticket lifecycle.
-	if err := e.db.ConsumeTOTP(context.Background(), u.ID, time.Now().Unix()/30+1, next, time.Now()); err == nil {
+	if err := e.db.ConsumeTOTP(context.Background(), u, time.Now().Unix()/30+1, next, time.Now()); err == nil {
 		t.Fatal("persistent replay accepted")
 	}
 	entries, _ := e.db.ListAudit(context.Background(), 20, 0)
@@ -92,5 +92,29 @@ func TestMFABruteForceLimitSurvivesFreshPassword(t *testing.T) {
 		if resp.StatusCode != want {
 			t.Fatalf("attempt %d status %d", i, resp.StatusCode)
 		}
+	}
+}
+
+func TestTOTPEnrollmentInvalidatedByPasswordReset(t *testing.T) {
+	e := newTestEnv(t)
+	token := e.adminToken(t)
+	resp, body := e.do(t, "POST", "/api/auth/totp/setup", token, map[string]string{"password": testPassword})
+	if resp.StatusCode != 200 {
+		t.Fatal(body)
+	}
+	secret := body["secret"].(string)
+	u, _ := e.db.GetUserByUsername(context.Background(), "admin")
+	// Direct DB reset represents the separate reset-password CLI process: it cannot clear memory.
+	if err := e.db.UpdateUserPassword(context.Background(), u.ID, "changed password hash"); err != nil {
+		t.Fatal(err)
+	}
+	code, _ := totp.GenerateCode(secret, time.Now())
+	resp, body = e.do(t, "POST", "/api/auth/totp/enable", token, map[string]string{"code": code})
+	if resp.StatusCode != 400 {
+		t.Fatalf("old setup accepted after password reset %d %v", resp.StatusCode, body)
+	}
+	u, _ = e.db.GetUserByID(context.Background(), u.ID)
+	if u.TOTPEnabled {
+		t.Fatal("MFA enabled by stale enrollment")
 	}
 }
