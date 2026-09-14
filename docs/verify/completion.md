@@ -2,6 +2,8 @@
 
 日期：2026-09-14。代码实现、真实本地链路、浏览器 fixture 与外部验收分别记录。仓库未配置 remote，本记录不代表远端 CI、Release 或生产发布。
 
+后续交付说明：本文件记录首次本地集成时的状态。之后已补齐中文公共界面，并创建公开仓库 [han-cczu/vps-monitor](https://github.com/han-cczu/vps-monitor)；当前远端检查请查看对应 main 提交的 [Actions](https://github.com/han-cczu/vps-monitor/actions/workflows/ci.yml)。本地清理已将临时产物和冗余依赖移出项目，保留运行程序、数据库、备份与必要工具。
+
 ## 工程检查
 
 - Windows Go 1.26.8：`go test -p 2 ./server/... ./agent/... ./proto/...`、`go vet -p 2 ./server/... ./agent/... ./proto/...` 全部通过。

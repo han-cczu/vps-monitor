@@ -28,4 +28,4 @@
 
 当前程序为 `dist/local-panel/vps-server-zh.exe`；运行信息、备份位置和结果保存在忽略目录的 `runtime.json`、`chinese-ui-verification.json`，日志为 `server-zh.log` 和 `server-zh-error.log`。本次只更新界面资源，未修改数据库迁移或凭据。
 
-仓库未配置 remote，本次交付为本地 main 和本机运行版本。
+以上为中文修复交付时的本地验收记录。后续已创建公开仓库 [han-cczu/vps-monitor](https://github.com/han-cczu/vps-monitor)，远端 CI 以 Actions 对应提交的结果为准。
