@@ -1,0 +1,40 @@
+{
+  "platform": "Linux amd64 / systemd",
+  "checks": {
+    "install_four_protocols_apply_state": true,
+    "rapid_writes_one_revision": true,
+    "real_50mib_user_accounting": true,
+    "occupied_port_preserves_old_config_and_rollback": true,
+    "real_log_request_response": true,
+    "offline_edit_reconnect_apply": true,
+    "empty_ss_users_reject_former_credentials": true,
+    "mihomo_vless_transfer": true,
+    "mihomo_shadowsocks_transfer": true,
+    "mihomo_hysteria2_transfer": true,
+    "mihomo_tuic_transfer": true,
+    "mihomo_150mib_quota_denied_empty_subscription": true,
+    "mihomo_quota_raise_restores": true,
+    "mihomo_expiry_stop_extend_restore": true,
+    "subscription_token_rotation_keeps_proxy_credentials": true,
+    "mihomo_full_subscription_check": true,
+    "real_agent_update_hash_backup_same_pid_reconnect": true,
+    "panel_restart_retains_revision": true
+  },
+  "payload_bytes": 52428800,
+  "first_revision": 1,
+  "listening": [
+    "45705/udp",
+    "46167/tcp",
+    "46167/udp",
+    "47087/tcp",
+    "47575/udp"
+  ],
+  "firewall": "none",
+  "traffic_used": 52429003,
+  "accounting_seconds": 43.187,
+  "mihomo_version": "Mihomo Meta v1.19.30 linux amd64 with go1.26.6 Sun Aug 16 10:02:19 UTC 2026\nUse tags: with_gvisor",
+  "quota_seconds": 25.398,
+  "quota_restore_seconds": 5.853,
+  "agent_update_seconds": 3.339,
+  "passed": true
+}

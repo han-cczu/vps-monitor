@@ -1,6 +1,7 @@
 """Optional real-client assertions used by reconcile-smoke.py (all data temporary)."""
 import datetime
 import json
+import re
 from pathlib import Path
 import secrets
 import subprocess
@@ -54,9 +55,9 @@ def exercise(mihomo, request, base, user, user_api, inbounds, state,
     assert check.returncode == 0, 'Mihomo rejected exported provider'
     client = launch([mihomo, '-d', str(work), '-f', str(config_file)], 'mihomo.log')
 
-    def control(path, body=None):
+    def control(path, body=None, controller=control_port):
         data = json.dumps(body).encode() if body is not None else None
-        req = urllib.request.Request(f'http://127.0.0.1:{control_port}' + path, data=data,
+        req = urllib.request.Request(f'http://127.0.0.1:{controller}' + path, data=data,
                                      headers={'Authorization': 'Bearer ' + secret, 'Content-Type': 'application/json'},
                                      method='PUT' if body is not None else 'GET')
         try:
@@ -72,9 +73,9 @@ def exercise(mihomo, request, base, user, user_api, inbounds, state,
     def select(name):
         assert control('/proxies/QA', {'name': name}), 'Mihomo selection failed'
 
-    def transfer(path='/small', timeout=20):
+    def transfer(path='/small', timeout=20, listener=proxy_port):
         return subprocess.run(['curl', '--noproxy', '', '-fsS', '--max-time', str(timeout),
-                               '-x', f'http://127.0.0.1:{proxy_port}',
+                               '-x', f'http://127.0.0.1:{listener}',
                                f'http://127.0.0.1:{payload_port}' + path, '-o', '/dev/null'],
                               capture_output=True, timeout=timeout+5).returncode
 
@@ -84,6 +85,34 @@ def exercise(mihomo, request, base, user, user_api, inbounds, state,
         assert result == 0, 'real Mihomo protocol connection failed: ' + proxy['type']
         evidence['checks']['mihomo_' + proxy['type'].lower() + '_transfer'] = True
     evidence['mihomo_version'] = subprocess.check_output([mihomo, '-v'], text=True, timeout=5).strip()
+
+    # A separate client has no cached QUIC sessions; wrong certificate pins must
+    # fail even though these loopback servers use self-signed certificates.
+    bad_provider, replacements = re.subn(rb'(?m)^(\s+fingerprint: )"[a-fA-F0-9:]+"', lambda m: m[1] + b'"' + b'0'*64 + b'"', provider)
+    assert replacements == 2, 'expected HY2 and TUIC certificate pins'
+    bad_dir = work / 'wrong-pin'
+    bad_dir.mkdir(mode=0o700)
+    bad_provider_file = bad_dir / 'provider.yaml'
+    bad_provider_file.write_bytes(bad_provider)
+    bad_provider_file.chmod(0o600)
+    bad_proxy, bad_control = port(), port()
+    bad_config = json.loads(json.dumps(config))
+    bad_config['mixed-port'] = bad_proxy
+    bad_config['external-controller'] = f'127.0.0.1:{bad_control}'
+    bad_config['proxy-providers']['qa']['path'] = str(bad_provider_file)
+    bad_config_file = bad_dir / 'config.json'
+    bad_config_file.write_text(json.dumps(bad_config))
+    bad_config_file.chmod(0o600)
+    bad_client = launch([mihomo, '-d', str(bad_dir), '-f', str(bad_config_file)], 'wrong-pin.log')
+    wait_for('wrong pin client', lambda: control('/providers/proxies/qa', controller=bad_control), 15)
+    for proxy in available:
+        if proxy['type'].lower() not in ['hysteria2', 'tuic']:
+            continue
+        assert control('/proxies/QA', {'name': proxy['name']}, controller=bad_control)
+        assert transfer(timeout=5, listener=bad_proxy) != 0, 'wrong certificate pin accepted: ' + proxy['type']
+        evidence['checks']['mihomo_' + proxy['type'].lower() + '_wrong_pin_rejected'] = True
+    bad_client.terminate()
+    bad_client.wait(timeout=10)
 
     ss = next(p for p in available if p['type'].lower() == 'shadowsocks')
     select(ss['name'])
