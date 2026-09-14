@@ -12,7 +12,7 @@ import { Iconify } from 'src/components/iconify';
 // ----------------------------------------------------------------------
 
 /** 排序方式。默认 `sort` 跟随节点管理页里手工排的顺序。 */
-export type SortKey = 'sort' | 'name' | 'cpu' | 'mem' | 'traffic';
+export type SortKey = 'sort' | 'name' | 'cpu' | 'mem' | 'traffic' | 'expire' | 'remaining';
 
 export const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: 'sort', label: '默认顺序' },
@@ -20,6 +20,8 @@ export const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: 'cpu', label: 'CPU 使用率' },
   { value: 'mem', label: '内存使用率' },
   { value: 'traffic', label: '出站流量' },
+  { value: 'expire', label: '到期最近' },
+  { value: 'remaining', label: '剩余流量最少' },
 ];
 
 export type Filters = {

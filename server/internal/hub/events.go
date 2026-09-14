@@ -12,15 +12,21 @@ const (
 	// EventServerOnline 在节点从离线变为在线时发出。
 	EventServerOnline EventKind = "server.online"
 	// EventServerOffline 在离线扫描判定节点掉线时发出。
-	EventServerOffline   EventKind = "server.offline"
-	EventCoreApplyFailed EventKind = "core.apply_failed"
+	EventServerOffline          EventKind = "server.offline"
+	EventCoreApplyFailed        EventKind = "core.apply_failed"
+	EventServerTrafficThreshold EventKind = "server.traffic"
+	EventServerExpiringSoon     EventKind = "server.expire"
 )
 
 // Event 是总线上的一条事件。
 type Event struct {
-	Kind     EventKind
-	ServerID int64
-	At       time.Time
+	Kind       EventKind
+	ServerID   int64
+	At         time.Time
+	TargetType string
+	TargetID   int64
+	Threshold  int
+	Message    string
 }
 
 // Bus 是一个极简的事件总线：发布者不阻塞，订阅者各拿一条带缓冲的通道。

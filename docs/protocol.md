@@ -556,3 +556,18 @@ core.stats 不信任 Agent 时间，按面板接收日期归入 daily；用户�
 - 表单保存只发送可写 settings，省略 private_key/public_key/server_psk/obfs_password；首次 VLESS 留空 Short IDs 时省略该字段以自动生成，编辑态至少一项。密钥重生使用专用接口。
 - 手动 apply 以响应中的 revision/sha256/version 为目标，观察在线、运行、pending=false 且三字段匹配后结束等待；UI 最多等待 60 s，不代替服务端的 req_id 确认机制。
 - 日志显示/复制移除 ANSI 颜色序列，关闭抽屉取消 HTTP 等待；不会把主动取消显示为网络故障。所有密码与完整修订仅在既有管理员接口范围内读取。
+
+
+## 节点账单与流量（步骤 18）
+
+`GET /api/servers/{id}/traffic?months=12` 需要管理员 JWT，返回最新优先的数组 `[{period_start,period_end,in,out,used}]`；时间为 Unix 秒，当前账期 `period_end=null`，`months` 为 1–120，默认 12。读取前冲刷已接收的内存用量；历史 `used` 按节点当前 `traffic_mode` 计算。
+
+REST 节点列表/详情增加 `traffic_used`，上限沿用 `traffic_limit`。WS 的 `traffic={used,limit,mode,in,out,period_start,period_end_expected}` 中 `limit=0` 为不限；`net.in_total/out_total` 改为当前账期累计，`net.up/down` 仍为实时速率。四种模式为 in/out/sum/max。
+
+首次采集只建立基线；重复/旧时间戳忽略，单向计数变小视为该向归零，增量为当前值。计数器与账期总量每分钟同事务提交，退出时等待冲刷；重启加载持久基线。机器在未冲刷区间重启会丢失归零前无法恢复的量，不保证“只丢一秒”。累计统计跨过停机账期边界时只能归入恢复后的当前账期，未观测区间不按时间伪造拆分。
+
+结算日按 VM_TZ，31 号在短月落到月末；启动和每分钟补齐遗漏的全部月界线，同时更新 `traffic.last_rollover_date`。改重置日保留当前用量，在修改后的下一个有效结算日关闭当前账期。零用量账期也保留。后台有一分钟调度精度，在线 metrics 可在首条跨界样本立即滚动。
+
+自动顺延在启动补跑和每日 00:05 后执行：只处理 `expire_at < 今天 && auto_renew`，month/quarter/year 按日历加 1/3/12 月，短月夹到月末，多次补算直到晚于今天；once 不变。变更与 `actor=system, action=server.auto_renew` 审计同事务提交。提醒使用 `billing_reminders` 持久化每天/节点/阈值去重。
+
+统一内存总线 Event 保留 Kind/ServerID/At，并增加 TargetType/TargetID/Threshold/Message。流量跨 80/90/100 发布 `server.traffic`，到期余 7/3/1 天发布 `server.expire`；节点 TargetType=server，TargetID=ServerID，Threshold 分别为百分比或天数，At 为面板时区时间。总线是非阻塞、非持久投递，不能视为通知成功回执。

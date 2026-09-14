@@ -25,6 +25,7 @@ import (
 	"vpsmon/server/internal/ping"
 	"vpsmon/server/internal/proxy"
 	"vpsmon/server/internal/store"
+	"vpsmon/server/internal/traffic"
 )
 
 // maxConcurrentVerify 是同时进行的 argon2 校验数上限。
@@ -52,6 +53,7 @@ type Deps struct {
 	CoreFiles  *corefiles.Store
 	Proxy      *proxy.Service
 	Reconciler *proxy.Reconciler
+	Traffic    *traffic.Accountant
 	coreSlots  chan struct{}
 
 	// verifySem 由 NewRouter 初始化，限制并发密码校验数。
@@ -110,6 +112,7 @@ func NewRouter(deps Deps) http.Handler {
 			protected.Delete("/servers/{id}", d.deleteServer)
 			protected.Post("/servers/{id}/token", d.resetServerToken)
 			protected.Get("/servers/{id}/history", d.history)
+			protected.Get("/servers/{id}/traffic", d.trafficHistory)
 			protected.Get("/ping-tasks", d.listPingTasks)
 			protected.Post("/ping-tasks", d.createPingTask)
 			protected.Put("/ping-tasks/{id}", d.updatePingTask)

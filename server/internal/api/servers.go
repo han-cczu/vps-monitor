@@ -41,9 +41,10 @@ type serverConfigDTO struct {
 // serverDTO 是配置加上实时状态。online / last_seen 来自 hub 的内存态（步骤 05 起）。
 type serverDTO struct {
 	serverConfigDTO
-	Online   bool     `json:"online"`
-	LastSeen *int64   `json:"last_seen"`
-	Host     *hostDTO `json:"host"`
+	Online      bool     `json:"online"`
+	LastSeen    *int64   `json:"last_seen"`
+	Host        *hostDTO `json:"host"`
+	TrafficUsed int64    `json:"traffic_used"`
 }
 
 // hostDTO 是 agent 上报的静态信息（步骤 05 起才有值）。
@@ -132,7 +133,7 @@ func (d *Deps) listServers(w http.ResponseWriter, r *http.Request) {
 			host = &h
 		}
 		online, lastSeen := d.Hub.Status(s.ID)
-		out = append(out, toServerDTO(s, host, online, lastSeen))
+		out = append(out, d.withTraffic(toServerDTO(s, host, online, lastSeen)))
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"servers": out})
@@ -155,7 +156,7 @@ func (d *Deps) getServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	online, lastSeen := d.Hub.Status(s.ID)
-	writeJSON(w, http.StatusOK, map[string]any{"server": toServerDTO(s, host, online, lastSeen)})
+	writeJSON(w, http.StatusOK, map[string]any{"server": d.withTraffic(toServerDTO(s, host, online, lastSeen))})
 }
 
 // createServer 处理 POST /api/servers。token 明文只在这里返回一次。
@@ -185,6 +186,11 @@ func (d *Deps) createServer(w http.ResponseWriter, r *http.Request) {
 	after := toServerConfigDTO(s)
 	audit.Record(r.Context(), d.DB, "server.create", "server", strconv.FormatInt(s.ID, 10), nil, after)
 	slog.Info("server created", "server_id", s.ID, "name", s.Name)
+	if d.Traffic != nil {
+		if err := d.Traffic.Reload(r.Context()); err != nil {
+			slog.Error("reload traffic", "err", err)
+		}
+	}
 
 	d.Hub.InvalidateConfig()
 
@@ -226,6 +232,11 @@ func (d *Deps) updateServer(w http.ResponseWriter, r *http.Request) {
 	audit.Record(r.Context(), d.DB, "server.update", "server", strconv.FormatInt(updated.ID, 10),
 		toServerConfigDTO(before), toServerConfigDTO(updated))
 	slog.Info("server updated", "server_id", updated.ID, "name", updated.Name)
+	if d.Traffic != nil {
+		if err := d.Traffic.Reload(r.Context()); err != nil {
+			slog.Error("reload traffic", "err", err)
+		}
+	}
 
 	d.Hub.InvalidateConfig()
 
@@ -241,7 +252,7 @@ func (d *Deps) updateServer(w http.ResponseWriter, r *http.Request) {
 	}
 	online, lastSeen := d.Hub.Status(updated.ID)
 
-	writeJSON(w, http.StatusOK, map[string]any{"server": toServerDTO(updated, host, online, lastSeen)})
+	writeJSON(w, http.StatusOK, map[string]any{"server": d.withTraffic(toServerDTO(updated, host, online, lastSeen))})
 }
 
 // deleteServer 处理 DELETE /api/servers/{id}。子表靠外键级联删除。
@@ -267,6 +278,9 @@ func (d *Deps) deleteServer(w http.ResponseWriter, r *http.Request) {
 
 	d.Hub.Disconnect(before.ID, "server deleted")
 	d.Hub.Remove(before.ID)
+	if d.Traffic != nil {
+		d.Traffic.Forget(before.ID)
+	}
 	if d.Reconciler != nil {
 		d.Reconciler.Forget(before.ID)
 	}

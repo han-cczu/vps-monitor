@@ -26,6 +26,7 @@ import (
 	"vpsmon/server/internal/agentdist"
 	"vpsmon/server/internal/api"
 	"vpsmon/server/internal/auth"
+	"vpsmon/server/internal/billing"
 	"vpsmon/server/internal/clock"
 	"vpsmon/server/internal/config"
 	"vpsmon/server/internal/corefiles"
@@ -34,6 +35,7 @@ import (
 	"vpsmon/server/internal/ping"
 	"vpsmon/server/internal/proxy"
 	"vpsmon/server/internal/store"
+	"vpsmon/server/internal/traffic"
 	"vpsmon/server/web"
 )
 
@@ -238,6 +240,17 @@ func run() error {
 	go limiter.Run(ctx, time.Minute)
 
 	realtime := hub.New(db, tokens)
+	accountant := traffic.New(db, realtime.Bus)
+	if err := accountant.Load(ctx); err != nil {
+		return fmt.Errorf("load traffic: %w", err)
+	}
+	realtime.Agents.OnMetrics(accountant.OnMetrics)
+	realtime.Registry.SetTrafficSource(accountant.SnapshotFor)
+	trafficCtx, stopTraffic := context.WithCancel(context.Background())
+	trafficDone := make(chan struct{})
+	go func() { defer close(trafficDone); accountant.Run(trafficCtx) }()
+	defer func() { stopTraffic(); <-trafficDone }()
+	go billing.New(db, realtime.Bus, realtime.InvalidateConfig).Run(ctx)
 	pings := ping.New(db, realtime.Agents)
 	if err := pings.ReloadTasks(ctx); err != nil {
 		return fmt.Errorf("load ping tasks: %w", err)
@@ -299,6 +312,7 @@ func run() error {
 		CoreFiles:      cores,
 		Proxy:          proxy.New(db, reconciler),
 		Reconciler:     reconciler,
+		Traffic:        accountant,
 	})
 
 	srv := &http.Server{

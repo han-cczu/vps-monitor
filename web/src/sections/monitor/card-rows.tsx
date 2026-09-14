@@ -29,27 +29,38 @@ export function TotalsRow({ outTotal, inTotal }: { outTotal: number; inTotal: nu
 
 // ----------------------------------------------------------------------
 
-/**
- * 剩余流量。
- *
- * `traffic` 要到步骤 18（账单与流量套餐）才有值，在那之前恒为 null：
- * 这里按「不限」渲染——显示 ∞ 和一条空进度条，而不是假装有个数。
- */
+/** 当前账期剩余流量。无限额仍显示实际用量，空条表示未设上限。 */
 export function TrafficRow({ traffic }: { traffic: ServerSnapshot['traffic'] }) {
+  const limited = !!traffic && traffic.limit > 0;
+  const percent = limited ? (traffic.used / traffic.limit) * 100 : 0;
+  const remaining = traffic
+    ? limited
+      ? formatBytes(Math.max(0, traffic.limit - traffic.used))
+      : '∞'
+    : '—';
   return (
     <Box sx={{ gap: 0.75, display: 'flex', flexDirection: 'column' }}>
-      <Box sx={{ gap: 1, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+      <Box
+        sx={{ gap: 1, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}
+      >
         <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-          剩余流量
+          剩余流量 {remaining}
         </Typography>
         <Typography
           variant="caption"
           sx={{ color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}
         >
-          {traffic === null ? '不限' : ''}
+          {traffic
+            ? `${formatBytes(traffic.used)} / ${limited ? formatBytes(traffic.limit) : '∞'}`
+            : '—'}
         </Typography>
       </Box>
-      <SegmentBar value={0} height={4} />
+      <SegmentBar
+        value={percent}
+        height={4}
+        segments={20}
+        color={percent > 95 ? 'error' : percent > 80 ? 'warning' : 'primary'}
+      />
     </Box>
   );
 }
@@ -127,7 +138,7 @@ function ExpirePair({ days }: { days: number | null }) {
     return <MetaPair label="到期" value="—" align="right" />;
   }
 
-  const color = days < 0 ? 'error.main' : days <= 7 ? 'warning.main' : undefined;
+  const color = days < 7 ? 'error.main' : days < 30 ? 'warning.main' : undefined;
   const text = days < 0 ? `已过期 ${Math.abs(days)} 天` : `${days} 天`;
 
   return (
