@@ -4,6 +4,7 @@ import json
 import re
 from pathlib import Path
 import secrets
+import socket
 import subprocess
 import time
 import urllib.error
@@ -12,8 +13,53 @@ import urllib.request
 from zoneinfo import ZoneInfo
 
 
-def exercise(mihomo, request, base, user, user_api, inbounds, state,
-             work, port, launch, wait_for, payload_port, evidence):
+def exercise_singbox(core, subscription, token, work, port, launch, stop,
+                     wait_for, payload_port, evidence):
+    print('subscription smoke: importing real sing-box four-protocol outbounds', flush=True)
+    body, _ = subscription(token, 'singbox')
+    outbounds = json.loads(body)['outbounds']
+    expected = {'vless', 'shadowsocks', 'hysteria2', 'tuic'}
+    assert len(outbounds) == 4 and {out['type'] for out in outbounds} == expected, 'sing-box subscription missing protocol'
+    expected_payload = b'x' * (64 * 1024)
+    for outbound in outbounds:
+        protocol = outbound['type']
+        listener = port()
+        # Preserve every exported protocol/TLS field. A single outbound and
+        # explicit final route prevent another working protocol masking failure.
+        config = {
+            'log': {'level': 'warn'},
+            'inbounds': [{'type': 'mixed', 'listen': '127.0.0.1', 'listen_port': listener}],
+            'outbounds': [outbound],
+            'route': {'final': outbound['tag']},
+        }
+        config_file = work / ('singbox-' + protocol + '.json')
+        config_file.write_text(json.dumps(config))
+        config_file.chmod(0o600)
+        check = subprocess.run([core, 'check', '-c', str(config_file)], capture_output=True, timeout=20)
+        assert check.returncode == 0, 'sing-box rejected exported outbound: ' + protocol
+        client = launch([core, 'run', '-c', str(config_file)], 'singbox-' + protocol + '.log')
+        try:
+            def ready():
+                assert client.poll() is None, 'sing-box subscription client exited: ' + protocol
+                try:
+                    with socket.create_connection(('127.0.0.1', listener), timeout=0.2):
+                        return True
+                except OSError:
+                    return False
+
+            wait_for('sing-box ' + protocol + ' client', ready, 15)
+            result = subprocess.run(['curl', '--noproxy', '', '-fsS', '--max-time', '20',
+                                     '-x', f'http://127.0.0.1:{listener}',
+                                     f'http://127.0.0.1:{payload_port}/small'],
+                                    capture_output=True, timeout=25)
+            assert result.returncode == 0 and result.stdout == expected_payload, 'real sing-box protocol transfer failed: ' + protocol
+            evidence['checks']['singbox_' + protocol + '_transfer'] = True
+        finally:
+            stop(client)
+
+
+def exercise(mihomo, core, request, base, user, user_api, inbounds, state,
+             work, port, launch, stop, wait_for, payload_port, evidence):
     print('subscription smoke: importing real four-protocol provider', flush=True)
     # The legacy smoke leaves VLESS disabled; enable it for the complete export.
     def wait_applied(label, before, timeout=20):
@@ -164,3 +210,5 @@ def exercise(mihomo, request, base, user, user_api, inbounds, state,
     check = subprocess.run([mihomo, '-t', '-d', str(work), '-f', str(full_file)], capture_output=True, timeout=20)
     assert check.returncode == 0, 'Mihomo rejected full Clash subscription'
     evidence['checks']['mihomo_full_subscription_check'] = True
+    exercise_singbox(core, subscription, new_user['sub_token'], work, port, launch,
+                     stop, wait_for, payload_port, evidence)
