@@ -1,5 +1,6 @@
 import type { ServerSnapshot } from 'src/types/realtime';
 
+import useSWR from 'swr';
 import { useShallow } from 'zustand/react/shallow';
 
 import Box from '@mui/material/Box';
@@ -9,6 +10,7 @@ import Typography from '@mui/material/Typography';
 
 import { daysUntil, formatRate, formatBytes } from 'src/utils/format';
 
+import { fetcher } from 'src/lib/axios';
 import { useRealtime } from 'src/store/realtime';
 
 // ----------------------------------------------------------------------
@@ -24,6 +26,15 @@ const EXPIRING_SOON_DAYS = 7;
  */
 export function SummaryBar() {
   const summary = useRealtime(useShallow(selectSummary));
+  const { data: subscribers, error: subscribersError } = useSWR<{
+    subscribers: { enabled: boolean; auto_disabled: string }[];
+  }>('/api/subscribers', fetcher, { refreshInterval: 60000 });
+  const disabled =
+    subscribers && !subscribersError
+      ? subscribers.subscribers.filter(
+          (s) => s.enabled && ['quota', 'expired'].includes(s.auto_disabled)
+        ).length
+      : undefined;
 
   return (
     <Card
@@ -31,7 +42,7 @@ export function SummaryBar() {
         p: 2.5,
         gap: 2,
         display: 'grid',
-        gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(5, 1fr)' },
+        gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)', xl: 'repeat(6, 1fr)' },
       }}
     >
       <SummaryItem
@@ -51,6 +62,11 @@ export function SummaryBar() {
         value={String(summary.expiring)}
         hint="含已经过期的节点"
         tone={summary.expiring > 0 ? 'warning' : undefined}
+      />
+      <SummaryItem
+        label="超额/到期停用"
+        value={disabled === undefined ? '—' : `${disabled} 人`}
+        tone={disabled ? 'warning' : undefined}
       />
     </Card>
   );

@@ -588,3 +588,15 @@ PUT /api/inbounds/1
 总览人数是含停用用户的分配人数；入站流量是面板本次运行累计，重启清零，不代表账期流量。前端显示“等待节点应用”表示数据库已保存，实际生效需查看核心状态。60 s 未确认时检查 Agent 连接、版本和错误后再操作。
 
 本步本地验收与 fixture 边界见 [verify/proxy-ui.md](verify/proxy-ui.md)。
+
+
+## 告警通知排查（步骤 19）
+
+1. 在告警“通知渠道”添加并启用渠道；保存只更新配置，不会发送消息。由管理员点击“发送测试”验证目的地址。生产测试会真的发送一条消息；自动化测试只使用本地 httptest。
+2. 事件“未确认送达”可能为冷却、无启用渠道、尚在重试或某渠道失败。查看服务日志中的 event_id/channel_id/attempt/reason；日志不会显示 bot token 或 Webhook URL。
+3. 默认共 3 次请求，失败后每隔 30 s 再试；网络恢复必须在剩余尝试内才能自动补发。超过上限保留失败记录，不无限重试。先修复渠道，再由管理员使用显式测试检查连通性；新事件可重新走发送流程。
+4. SQLite 只读排查：`SELECT event_id,channel_id,recovery,attempts,next_at,sent_at,last_error FROM alert_deliveries ORDER BY event_id DESC LIMIT 50;`。不要把 notify_channels.config 复制到工单，它含凭据。
+5. Telegram 请求走 HTTPS api.telegram.org，代理可用 VM_HTTP_PROXY；修改环境后需由部署流程重启面板。请求不跟随重定向。
+6. 接收 Webhook 时对原始请求体计算 HMAC-SHA256，并常量时间比较 X-Signature 去掉 sha256= 后的值。重复抵达可用 `(event.id,recovery)` 去重。
+7. 人工关闭事件不代表节点恢复；规则条件仍满足会重新记录，冷却时间内不重复通知。禁用规则会在下轮评估关闭原进行中事件。
+8. 账期/到期调度用面板 VM_TZ，Web端显示可随浏览器/全局时区设置。节点流量跨长时间断线只能把计数增量归入重连后的账期；不得将其写成精确分日统计。

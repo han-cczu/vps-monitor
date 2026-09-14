@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"vpsmon/server/internal/alert"
 	"vpsmon/server/internal/audit"
 	"vpsmon/server/internal/auth"
 	"vpsmon/server/internal/config"
@@ -54,6 +55,7 @@ type Deps struct {
 	Proxy      *proxy.Service
 	Reconciler *proxy.Reconciler
 	Traffic    *traffic.Accountant
+	Alerts     *alert.Service
 	coreSlots  chan struct{}
 
 	// verifySem 由 NewRouter 初始化，限制并发密码校验数。
@@ -125,6 +127,7 @@ func NewRouter(deps Deps) http.Handler {
 			protected.Put("/corefiles/current", d.setCurrentCore)
 			protected.Delete("/corefiles/{version}", d.deleteCoreVersion)
 			d.proxyRoutes(protected)
+			d.alertRoutes(protected)
 		})
 
 		api.NotFound(func(w http.ResponseWriter, _ *http.Request) {
