@@ -63,3 +63,19 @@ func TestSettingsWhitelistAtomicMergeAndHook(t *testing.T) {
 		t.Fatal("bad audit timestamp accepted")
 	}
 }
+
+func TestSettingsAuditFailureRollsBack(t *testing.T) {
+	e := newTestEnv(t)
+	token := e.adminToken(t)
+	if _, err := e.db.Exec(`CREATE TRIGGER reject_setting_audit BEFORE INSERT ON audit_log WHEN NEW.action='settings.update' BEGIN SELECT RAISE(ABORT,'test audit unavailable'); END`); err != nil {
+		t.Fatal(err)
+	}
+	resp, _ := e.do(t, "PUT", "/api/settings", token, map[string]any{"site.title": "Must roll back"})
+	if resp.StatusCode != 500 {
+		t.Fatal(resp.StatusCode)
+	}
+	_, body := e.do(t, "GET", "/api/settings", token, nil)
+	if body["site.title"] != "VPS Monitor" {
+		t.Fatal("setting committed without audit")
+	}
+}

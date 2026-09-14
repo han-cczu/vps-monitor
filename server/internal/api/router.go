@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -40,6 +41,7 @@ const verifyQueueTimeout = 5 * time.Second
 type Deps struct {
 	DB               *store.DB
 	Tokens           *auth.Tokens
+	settingsMu       sync.Mutex
 	SettingsDefaults map[string]any
 	ValidateSetting  func(key string, value json.RawMessage) error
 	SettingsChanged  func(keys []string)
