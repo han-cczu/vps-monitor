@@ -13,6 +13,8 @@ import Typography from '@mui/material/Typography';
 
 import { paths } from 'src/routes/paths';
 
+import { formatPanelDate } from 'src/utils/format';
+
 import { DashboardContent } from 'src/layouts/dashboard';
 import { useSubscriber, subscriberAction, useSubscriberTraffic } from 'src/api/subscribers';
 
@@ -58,7 +60,7 @@ export function SubscriberDetailView({ id }: { id: number }) {
             <QuotaBar used={subscriber.traffic_used} limit={subscriber.traffic_limit} />
             <Typography variant="body2">
               到期：{subscriber.expire_at || '无到期'} · 账期起始：
-              {new Date(subscriber.period_start * 1000).toLocaleDateString()} · 下次重置：
+              {formatPanelDate(subscriber.period_start)} · 下次重置：
               {subscriber.next_reset_date ??
                 (subscriber.reset_day ? `每月 ${subscriber.reset_day} 日` : '不自动重置')}
             </Typography>

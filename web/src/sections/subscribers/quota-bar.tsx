@@ -2,11 +2,9 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import LinearProgress from '@mui/material/LinearProgress';
 
-export function bytesText(n: number) {
-  if (n < 1024) return `${n} B`;
-  const index = Math.min(4, Math.floor(Math.log(n) / Math.log(1024)));
-  return `${(n / 1024 ** index).toFixed(2)} ${['B', 'KiB', 'MiB', 'GiB', 'TiB'][index]}`;
-}
+import { formatBytes } from 'src/utils/format';
+
+export const bytesText = formatBytes;
 export function QuotaBar({ used, limit }: { used: number; limit: number }) {
   const percent = limit > 0 ? (used / limit) * 100 : 0;
   return (

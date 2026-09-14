@@ -14,7 +14,7 @@ import Typography from '@mui/material/Typography';
 import TableContainer from '@mui/material/TableContainer';
 import CircularProgress from '@mui/material/CircularProgress';
 
-import { formatBytes, formatPrice } from 'src/utils/format';
+import { formatBytes, formatPrice, formatPanelDate } from 'src/utils/format';
 
 import { fetcher } from 'src/lib/axios';
 import { useServer } from 'src/store/realtime';
@@ -30,7 +30,7 @@ export function BillingPanel({ server }: { server: ServerItem }) {
     fetcher,
     { refreshInterval: 60000 }
   );
-  const date = (seconds: number) => new Date(seconds * 1000).toLocaleDateString('zh-CN');
+  const date = formatPanelDate;
   const current = live?.traffic;
   return (
     <Card sx={{ p: 3 }}>
