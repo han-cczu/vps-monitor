@@ -51,9 +51,9 @@ command -v systemctl >/dev/null 2>&1 || die "没有 systemctl，这个脚本只�
 
 # 下载器：curl 优先，退回 wget
 if command -v curl >/dev/null 2>&1; then
-  fetch() { curl -fsSL "$1" -o "$2"; }
+  fetch() { curl -fsS --connect-timeout 10 --max-time 60 --max-filesize 67108864 "$1" -o "$2"; }
 elif command -v wget >/dev/null 2>&1; then
-  fetch() { wget -qO "$2" "$1"; }
+  fetch() { (ulimit -f 65536; wget -q --timeout=60 --tries=1 --max-redirect=0 -O "$2" "$1"); }
 else
   die "需要 curl 或 wget"
 fi
@@ -83,10 +83,19 @@ echo "==> 面板地址 ${BASE}，架构 ${ARCH}"
 
 # 1. 下载二进制到临时文件再原子替换，避免把正在运行的文件写坏
 TMP_BIN="$(mktemp "${BIN_PATH}.XXXXXX")"
-trap 'rm -f "$TMP_BIN"' EXIT
+TMP_SHA="${TMP_BIN}.sha256"
+trap 'rm -f "$TMP_BIN" "$TMP_SHA"' EXIT
 echo "==> 下载 ${BASE}/agent/vps-agent-linux-${ARCH}"
 fetch "${BASE}/agent/vps-agent-linux-${ARCH}" "$TMP_BIN" || die "下载失败，检查面板地址是否可访问"
 [ -s "$TMP_BIN" ] || die "下载到的文件是空的"
+[ "$(wc -c < "$TMP_BIN")" -le 67108864 ] || die "二进制超过64MiB上限"
+command -v sha256sum >/dev/null 2>&1 || die "需要sha256sum校验下载文件"
+fetch "${BASE}/agent/vps-agent-linux-${ARCH}.sha256" "$TMP_SHA" || die "下载校验摘要失败"
+EXPECTED_SHA="$(awk 'NR==1 {print $1}' "$TMP_SHA")"
+[[ "$EXPECTED_SHA" =~ ^[0-9a-f]{64}$ ]] || die "校验摘要格式错误"
+ACTUAL_SHA="$(sha256sum "$TMP_BIN" | awk '{print $1}')"
+[ "$ACTUAL_SHA" = "$EXPECTED_SHA" ] || die "SHA256不匹配，保留现有Agent"
+rm -f "$TMP_SHA"
 chmod 755 "$TMP_BIN"
 "$TMP_BIN" --version >/dev/null 2>&1 || die "下载到的二进制跑不起来（架构不匹配？）"
 mv -f "$TMP_BIN" "$BIN_PATH"

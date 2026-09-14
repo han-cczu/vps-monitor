@@ -1,6 +1,8 @@
 package api
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -37,5 +39,22 @@ func TestAgentUpdateRequiresCapabilityAndNewStableVersion(t *testing.T) {
 	resp, b := e.do(t, "POST", "/api/servers/agent/update-all", token, nil)
 	if resp.StatusCode != 202 || len(b["queued"].([]any)) != 0 {
 		t.Fatal("missing binary falsely queued")
+	}
+}
+
+func TestPublicAgentChecksumOnlyServesAllowlistedBinary(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(dir, "agent"), 0700)
+	binary := []byte("binary fixture")
+	_ = os.WriteFile(filepath.Join(dir, "agent", "vps-agent-linux-amd64"), binary, 0700)
+	e := newTestEnv(t, func(d *Deps) { d.DataDir = dir })
+	status, _, body := e.getRaw(t, "/agent/vps-agent-linux-amd64.sha256")
+	hash := sha256.Sum256(binary)
+	if status != 200 || body != fmt.Sprintf("%x  vps-agent-linux-amd64\n", hash) {
+		t.Fatalf("checksum %d %s", status, body)
+	}
+	status, _, _ = e.getRaw(t, "/agent/secret.sha256")
+	if status != 404 {
+		t.Fatal("unknown checksum path accepted")
 	}
 }

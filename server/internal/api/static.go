@@ -1,12 +1,17 @@
 package api
 
 import (
+	"crypto/sha256"
 	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"vpsmon/proto"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -20,10 +25,12 @@ const agentDirName = "agent"
 // 这两个接口是公开的（agent 装机时还没有任何凭据），所以只认固定的几个名字：
 // 不做前缀匹配、不接受路径分隔符，从根上堵掉目录穿越。
 var agentFiles = map[string]string{
-	"install.sh":            "text/x-shellscript; charset=utf-8",
-	"uninstall.sh":          "text/x-shellscript; charset=utf-8",
-	"vps-agent-linux-amd64": "application/octet-stream",
-	"vps-agent-linux-arm64": "application/octet-stream",
+	"vps-agent-linux-amd64.sha256": "text/plain; charset=utf-8",
+	"vps-agent-linux-arm64.sha256": "text/plain; charset=utf-8",
+	"install.sh":                   "text/x-shellscript; charset=utf-8",
+	"uninstall.sh":                 "text/x-shellscript; charset=utf-8",
+	"vps-agent-linux-amd64":        "application/octet-stream",
+	"vps-agent-linux-arm64":        "application/octet-stream",
 }
 
 // installScript 处理 GET /install.sh —— 一键安装命令里 curl 的那个地址。
@@ -46,7 +53,13 @@ func (d *Deps) serveAgentFile(w http.ResponseWriter, r *http.Request, name strin
 		return
 	}
 
-	path := filepath.Join(d.DataDir, agentDirName, name)
+	checksum := strings.HasSuffix(name, ".sha256")
+	binaryName := strings.TrimSuffix(name, ".sha256")
+	path := filepath.Join(d.DataDir, agentDirName, binaryName)
+	if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
+		notFoundText(w)
+		return
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		// 文件还没放进来是常态（步骤 04 产出 agent 之前根本没有），不该是 500
@@ -68,6 +81,22 @@ func (d *Deps) serveAgentFile(w http.ResponseWriter, r *http.Request, name strin
 		return
 	}
 
+	if checksum {
+		if stat.Size() <= 0 || stat.Size() > proto.MaxAgentBinarySize {
+			notFoundText(w)
+			return
+		}
+		hash := sha256.New()
+		n, err := io.Copy(hash, io.LimitReader(f, proto.MaxAgentBinarySize+1))
+		if err != nil || n != stat.Size() {
+			http.Error(w, "checksum unavailable", 500)
+			return
+		}
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = fmt.Fprintf(w, "%x  %s\n", hash.Sum(nil), binaryName)
+		return
+	}
 	w.Header().Set("Content-Type", contentType)
 	// 内容会随版本变（文件名固定），交给 If-Modified-Since / Range 判断，不做长缓存
 	w.Header().Set("Cache-Control", "no-cache")
