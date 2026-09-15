@@ -22,6 +22,7 @@ import (
 )
 
 var (
+	ErrReadOnly      = errors.New("该节点由外部管理，或尚未完成所有权核验；仅允许只读观测，请先升级探针")
 	ErrOffline       = errors.New("Agent 离线或发送队列不可用")
 	ErrNoCurrentCore = errors.New("请先选择当前托管核心版本")
 	ErrCoreBusy      = errors.New("核心操作正在进行，请稍后重试")
@@ -33,6 +34,7 @@ type AgentSender interface {
 	Connected(int64) bool
 }
 type ReconcilerOptions struct {
+	AllowManage  func(int64, bool) bool
 	Agents       AgentSender
 	Check        func(context.Context, string, []byte) error
 	Artifact     func(context.Context, string, string) (corefiles.Artifact, error)
@@ -156,6 +158,9 @@ func (r *Reconciler) cancelTimer(key string) {
 	}
 }
 func (r *Reconciler) NodeChanged(id int64, reason string) {
+	if r.options.AllowManage != nil && !r.options.AllowManage(id, true) {
+		return
+	}
 	r.schedule(timerKey("render", id), r.options.Debounce, func() {
 		ctx, cancel := context.WithTimeout(r.ctx, 30*time.Second)
 		defer cancel()
@@ -301,6 +306,9 @@ func (r *Reconciler) check(ctx context.Context, version string, config []byte) e
 // Reconcile checks outside the SQLite writer transaction, then compares a fresh
 // input snapshot before committing. Concurrent edits cannot publish stale input.
 func (r *Reconciler) Reconcile(ctx context.Context, id int64, force bool) (*store.Revision, error) {
+	if r.options.AllowManage != nil && !r.options.AllowManage(id, true) {
+		return nil, ErrReadOnly
+	}
 	n := r.node(id)
 	n.op.Lock()
 	defer n.op.Unlock()
@@ -399,6 +407,9 @@ func (r *Reconciler) connected(id int64) bool {
 	return r.options.Agents != nil && r.options.Agents.Connected(id)
 }
 func (r *Reconciler) sendDesired(ctx context.Context, id int64, n *nodeWork, rev *store.Revision, force bool) {
+	if r.options.AllowManage != nil && !r.options.AllowManage(id, false) {
+		return
+	}
 	if rev == nil || n.inflight != nil || n.awaitState || n.exhausted || n.retryPending || !r.connected(id) {
 		return
 	}

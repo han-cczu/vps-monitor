@@ -49,6 +49,7 @@ type HostInfo struct {
 
 // Hello 是 agent 连上后的第一条消息。
 type Hello struct {
+	ProxyManagement string   `json:"proxy_management,omitempty"`
 	Capabilities    []string `json:"capabilities,omitempty"`
 	Type            string   `json:"type"`
 	ProtoVersion    int      `json:"proto_version"`
@@ -100,9 +101,10 @@ type PingResult struct {
 
 // Config 是 server 下发给 agent 的运行参数。ReportInterval 为 0 表示不改。
 type Config struct {
-	Type           string     `json:"type"`
-	ReportInterval int        `json:"report_interval"` // 秒
-	PingTasks      []PingTask `json:"ping_tasks"`
+	ProxyObserveSession string     `json:"proxy_observe_session,omitempty"`
+	Type                string     `json:"type"`
+	ReportInterval      int        `json:"report_interval"` // 秒
+	PingTasks           []PingTask `json:"ping_tasks"`
 }
 
 // Error 是 agent 执行失败时回报的消息。

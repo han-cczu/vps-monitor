@@ -31,10 +31,18 @@ type NoopNotifier struct{}
 func (NoopNotifier) NodeChanged(int64, string) {}
 
 type Service struct {
-	db       *store.DB
-	notifier Notifier
-	now      func() time.Time
-	Events   func(hub.Event)
+	AllowManage func(int64) bool
+	db          *store.DB
+	notifier    Notifier
+	now         func() time.Time
+	Events      func(hub.Event)
+}
+
+func (s *Service) guard(id int64) error {
+	if s.AllowManage != nil && !s.AllowManage(id) {
+		return ErrReadOnly
+	}
+	return nil
 }
 
 func New(db *store.DB, n Notifier) *Service {

@@ -23,6 +23,11 @@ func (d *Deps) proxyRoutes(r chi.Router) {
 			})
 		})
 		r.Get("/servers/{id}/inbounds", d.proxyListInbounds)
+		r.Get("/servers/{id}/proxy-observations", d.proxyObservations)
+		r.Get("/servers/{id}/proxy-instances", d.proxyObservations)
+		r.Get("/servers/{id}/proxy-instances/{instance}", d.proxyInstance)
+		r.Get("/servers/{id}/proxy-instances/{instance}/{section:inbounds}", d.proxyInstance)
+		r.Post("/servers/{id}/proxy-observations/refresh", d.proxyObservationsRefresh)
 		r.Get("/servers/{id}/subscriber-traffic", d.nodeSubscriberTraffic)
 		r.Post("/servers/{id}/inbounds", d.proxyCreateInbound)
 		r.Get("/inbounds/{id}", d.proxyGetInbound)
@@ -64,6 +69,8 @@ func proxyError(w http.ResponseWriter, err error) bool {
 	}
 	var validation *proxy.ValidationError
 	switch {
+	case errors.Is(err, proxy.ErrReadOnly):
+		writeError(w, 409, err.Error())
 	case errors.As(err, &validation):
 		writeError(w, 400, validation.Error())
 	case errors.Is(err, store.ErrNotFound):

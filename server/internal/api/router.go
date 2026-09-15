@@ -27,6 +27,7 @@ import (
 	"vpsmon/server/internal/hub"
 	"vpsmon/server/internal/ping"
 	"vpsmon/server/internal/proxy"
+	"vpsmon/server/internal/proxyobserve"
 	"vpsmon/server/internal/store"
 	"vpsmon/server/internal/traffic"
 )
@@ -61,6 +62,7 @@ type Deps struct {
 	CoreFiles       *corefiles.Store
 	Proxy           *proxy.Service
 	Reconciler      *proxy.Reconciler
+	ProxyObserve    *proxyobserve.Service
 	Traffic         *traffic.Accountant
 	Alerts          *alert.Service
 	AdvancedCheck   proxy.AdvancedChecker

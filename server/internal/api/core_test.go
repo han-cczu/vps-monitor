@@ -78,7 +78,11 @@ func TestCoreAPIWebSocketLifecycle(t *testing.T) {
 	}
 	var config proto.Config
 	read(&config)
-	send(proto.Hello{Type: proto.TypeHello, ProtoVersion: proto.Version, Host: proto.HostInfo{Arch: "x86_64"}})
+	send(proto.Hello{Type: proto.TypeHello, ProtoVersion: proto.Version, Capabilities: []string{proto.ProxyObserveCapability}, ProxyManagement: "none", Host: proto.HostInfo{Arch: "x86_64"}})
+	read(&config)
+	if config.ProxyObserveSession == "" {
+		t.Fatal("observation session missing")
+	}
 	send(proto.CoreState{Type: proto.TypeCoreState, Core: "sing-box", Firewall: "none"})
 	wait := func(fn func() bool) {
 		t.Helper()
@@ -109,6 +113,7 @@ func TestCoreAPIWebSocketLifecycle(t *testing.T) {
 	if action.Action != "install" || action.File != "sing-box-linux-amd64" || action.ReqID != install["req_id"] {
 		t.Fatal("install not delivered")
 	}
+	send(proto.Hello{Type: proto.TypeHello, ProtoVersion: proto.Version, Capabilities: []string{proto.ProxyObserveCapability}, ProxyManagement: "managed", Host: proto.HostInfo{Arch: "x86_64"}})
 	send(proto.CoreState{Type: proto.TypeCoreState, Core: "sing-box", InstalledVersion: "v1.14.0", Firewall: "none", ReqID: action.ReqID})
 	var apply proto.CoreApply
 	read(&apply)

@@ -1,5 +1,6 @@
 import type { GridColDef } from '@mui/x-data-grid';
 import type { Inbound, CoreState } from 'src/types/proxy';
+import type { ProxyObservations } from 'src/types/proxy-observation';
 
 import useSWR from 'swr';
 
@@ -28,18 +29,29 @@ import { CustomBreadcrumbs } from 'src/components/custom-breadcrumbs';
 import { getErrorMessage } from 'src/auth/utils';
 
 import { coreStatus, countAssignments } from '../helpers';
+import { canEditManagedProxy } from '../observation-helpers';
 
-type NodeProxy = { id: number; core?: CoreState; inbounds?: Inbound[]; error?: string };
+type NodeProxy = {
+  id: number;
+  core?: CoreState;
+  inbounds?: Inbound[];
+  observed?: ProxyObservations;
+  error?: string;
+};
+
+const externalInstances = (row: NodeProxy) =>
+  row.observed?.instances.filter((i) => i.ownership === 'external' && !i.absent) ?? [];
 
 async function fetchOverview([, ids]: [string, number[]]): Promise<NodeProxy[]> {
   return Promise.all(
     ids.map(async (id) => {
       try {
-        const [core, inbounds] = await Promise.all([
+        const [core, inbounds, observed] = await Promise.all([
           fetcher<{ core: CoreState }>(`/api/servers/${id}/core`),
           fetcher<{ inbounds: Inbound[] }>(`/api/servers/${id}/inbounds`),
+          fetcher<ProxyObservations>(`/api/servers/${id}/proxy-observations`),
         ]);
-        return { id, core: core.core, inbounds: inbounds.inbounds };
+        return { id, core: core.core, inbounds: inbounds.inbounds, observed };
       } catch (err) {
         return { id, error: getErrorMessage(err) };
       }
@@ -76,7 +88,7 @@ export function ProxyListView() {
     },
     {
       field: 'online',
-      headerName: 'Agent',
+      headerName: '探针',
       width: 90,
       valueGetter: (_, row) => row.core?.online,
       renderCell: ({ row }) =>
@@ -91,10 +103,14 @@ export function ProxyListView() {
     {
       field: 'status',
       headerName: '核心状态',
-      width: 112,
+      width: 160,
       valueGetter: (_, row) => (row.core ? coreStatus(row.core).label : ''),
       renderCell: ({ row }) =>
-        row.core ? (
+        row.observed?.management === 'external' ? (
+          <Label color="info">外部管理 · 只读</Label>
+        ) : row.observed?.management === 'unknown' ? (
+          <Label color="warning">待核验 / 升级探针</Label>
+        ) : row.core ? (
           <Label color={coreStatus(row.core).color}>{coreStatus(row.core).label}</Label>
         ) : (
           '—'
@@ -102,15 +118,20 @@ export function ProxyListView() {
     },
     {
       field: 'version',
-      headerName: '已安装版本',
+      headerName: '核心版本',
       width: 180,
       valueGetter: (_, row) => row.core?.installed_version ?? '',
       renderCell: ({ row }) => (
         <Box sx={{ height: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-          {row.core?.installed_version || '—'}
-          {row.core?.installed_version && current && row.core.installed_version !== current && (
-            <Label color="warning">可升级</Label>
-          )}
+          {externalInstances(row).length
+            ? externalInstances(row)
+                .map((i) => `${i.core === 'xray' ? 'Xray' : 'sing-box'} ${i.version || ''}`)
+                .join('、')
+            : row.core?.installed_version || '—'}
+          {canEditManagedProxy(row.observed) &&
+            row.core?.installed_version &&
+            current &&
+            row.core.installed_version !== current && <Label color="warning">可升级</Label>}
         </Box>
       ),
     },
@@ -119,7 +140,9 @@ export function ProxyListView() {
       headerName: '入站数',
       width: 84,
       type: 'number',
-      valueGetter: (_, row) => row.inbounds?.length ?? null,
+      valueGetter: (_, row) =>
+        externalInstances(row).reduce((n, i) => n + i.inbounds.length, 0) +
+        (row.inbounds?.length ?? 0),
     },
     {
       field: 'users',
@@ -152,7 +175,7 @@ export function ProxyListView() {
       filterable: false,
       renderCell: ({ row }) => (
         <Button component={RouterLink} href={paths.dashboard.proxy.detail(row.id)}>
-          管理
+          {canEditManagedProxy(row.observed) ? '管理' : '查看'}
         </Button>
       ),
     },
@@ -176,18 +199,20 @@ export function ProxyListView() {
         }
         sx={{ mb: 3 }}
       />
-      <Alert
-        severity="info"
-        sx={{ mb: 3 }}
-        action={
-          <Button component={RouterLink} href={paths.dashboard.settings.corefiles}>
-            管理版本
-          </Button>
-        }
-      >
-        当前托管版本：{files.isLoading ? '加载中' : current || '尚未设置'}
-        。切换托管版本后，需逐台执行升级。
-      </Alert>
+      {rows.some((row) => canEditManagedProxy(row.observed)) && (
+        <Alert
+          severity="info"
+          sx={{ mb: 3 }}
+          action={
+            <Button component={RouterLink} href={paths.dashboard.settings.corefiles}>
+              管理版本
+            </Button>
+          }
+        >
+          当前托管版本：{files.isLoading ? '加载中' : current || '尚未设置'}
+          。切换托管版本后，需逐台执行升级。
+        </Alert>
+      )}
       {(serversError || files.error || assignments.error || overview.error) && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {getErrorMessage(serversError || files.error || assignments.error || overview.error)}

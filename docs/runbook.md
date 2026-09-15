@@ -226,6 +226,10 @@ docker compose up -d
 注意：**迁移只增不改，不会回滚**。新版本如果加过表或列，退回旧镜像时那些东西还在，
 旧代码不认识它们但也不碰。真正不兼容的改动会在发版说明里写清楚。
 
+`v0.2.1` 的迁移 0016 新增独立流量周期。旧程序虽然能读取新增列后的数据库，
+但不理解每 30 天或手动下次重置日期；使用新周期后不能仅换旧镜像回退。
+部署证据、备份位置及回退条件见[独立流量周期验收](verify/traffic-reset-schedule.md)。
+
 ### 看日志
 
 ```sh
@@ -658,6 +662,37 @@ sudo systemctl --no-pager status vps-agent
 面板启动和每日执行 `PRAGMA wal_checkpoint(TRUNCATE)`，每周执行 `PRAGMA optimize`；维护最多运行30秒。若长事务导致checkpoint返回busy，记录警告并在下一小时重试，不声称WAL有绝对硬上限。检查长期占用读事务、磁盘剩余空间和备份任务，避免直接删除运行中的 `vm.db-wal`/`vm.db-shm`。
 
 Caddy访问日志设置50MiB/5份，对查询token和Referer过滤并跳过订阅请求；默认/error logger还需全局过滤，避免反代502记录原始订阅路径。主线已在真实本地Caddy容器验证两类日志，发布后仍应复核，见 [安全检查表](security-checklist.md)。用无敏感fixture链接验证过滤，不把真实订阅token写入测试记录。
+
+### 外部 sing-box / Xray 观测
+
+进入“代理 → 节点代理”，可查看第三方脚本运行的实例和入站。外部卡片标为“外部管理 · 只读”；配置、重启、清零和卸载仍通过原管理器执行。“刷新观测”只要求探针重新读取。原管理器保存的用量与核心参考计数有各自来源标记，不影响本项目账期/校准/订阅结算。
+
+自定义布局可在节点的 `/etc/vps-agent/config.yaml` 加入以下配置（替换成实际路径）：
+
+```yaml
+proxy_observe:
+  disabled: false
+  bindings:
+    - core: xray
+      binary: /opt/custom/xray
+      service: custom-xray.service
+      config_paths:
+        - /opt/custom/config.json
+      # 仅匹配已适配 x-ui schema 时填写：
+      # database: /etc/x-ui-yg/x-ui-yg.db
+```
+
+修改后只重启 `vps-agent`。systemd 使用 `systemctl restart vps-agent`；OpenRC 使用 `rc-service vps-agent restart`。绑定支持 sing-box/Xray 的绝对路径，不接受脚本或任意 shell 命令。容器独立命名空间的端口是内部绑定，尚不代表宿主公网映射。
+
+本地只读诊断：`vps-agent observe --config /etc/vps-agent/config.yaml`。只输出白名单摘要，缓存写入 `/var/lib/vps-agent/observe`。可用 `--state-dir` 指定观察器自己的临时目录。
+
+`core.mode: observe` 关闭整套核心托管操作；`proxy_observe.disabled: true` 只关闭观测上报，两者不会修改原代理。旧安装记录只有在 unit、配置、核心版本等证据一致时才迁移所有权记录。无法验证时先排查，不要手写 `core-owner.json` 强行接管。
+
+`uninstall.sh --purge-core` 需要新 Agent 验证所有权，只删除核验过的具体核心文件；外部实例拒绝清理。普通卸载只删除探针，保留核心和诊断状态。原有日志轮转/截断规则仅用于验证通过的托管核心。
+
+升级顺序：备份面板数据库 → 发布面板及两架构 Agent 产物 → 分别升级节点 Agent → 检查状态/入站/计数及原服务 PID/配置哈希。回退观测可以禁用 `proxy_observe`，但不能回退到缺少所有权保护的旧 Agent；必要时停止探针，保留外部代理运行。后续数据库迁移编号必须大于当前已发布的 16（独立流量周期）；并行开发的迁移在发布前统一排序。
+
+详细证据和支持边界见 [外部代理验收记录](verify/external-proxy-observation.md)。
 
 ### 节点迁移与常见故障补充
 

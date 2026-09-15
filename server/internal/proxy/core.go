@@ -54,6 +54,9 @@ func (r *Reconciler) Handle(ctx context.Context, id int64, raw []byte) {
 			err = r.OnCoreState(ctx, id, s)
 		}
 	case proto.TypeCoreStats:
+		if r.options.AllowManage != nil && !r.options.AllowManage(id, false) {
+			return
+		}
 		var s proto.CoreStats
 		err = model.StrictJSON(raw, &s)
 		if err == nil {
@@ -183,6 +186,9 @@ func (r *Reconciler) OnCoreState(ctx context.Context, id int64, s proto.CoreStat
 	return nil
 }
 func (r *Reconciler) Action(ctx context.Context, id int64, action string) (string, error) {
+	if r.options.AllowManage != nil && !r.options.AllowManage(id, action == "install") {
+		return "", ErrReadOnly
+	}
 	if action != "install" && action != "restart" {
 		return "", invalid(fmt.Errorf("不支持的核心操作"))
 	}
@@ -250,6 +256,9 @@ func (r *Reconciler) Action(ctx context.Context, id int64, action string) (strin
 	return reqID, nil
 }
 func (r *Reconciler) Logs(ctx context.Context, id int64, lines int) (string, error) {
+	if r.options.AllowManage != nil && !r.options.AllowManage(id, false) {
+		return "", ErrReadOnly
+	}
 	if lines < 1 || lines > 1000 {
 		return "", invalid(fmt.Errorf("lines 必须为 1–1000"))
 	}
@@ -301,6 +310,9 @@ func (r *Reconciler) deliverLog(id int64, reqID string, result logResult) {
 	}
 }
 func (r *Reconciler) Rollback(ctx context.Context, id, revision int64) (*store.Revision, error) {
+	if r.options.AllowManage != nil && !r.options.AllowManage(id, false) {
+		return nil, ErrReadOnly
+	}
 	n := r.node(id)
 	n.op.Lock()
 	defer n.op.Unlock()

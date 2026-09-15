@@ -1,6 +1,8 @@
 package corectl
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -26,9 +28,16 @@ func (m *Manager) installLogrotate() error {
 	if m.paths.Logrotate == "" {
 		return nil
 	}
+	h := sha256.Sum256([]byte(LogrotateConfig()))
+	if err := m.allowResource(m.paths.Logrotate, hex.EncodeToString(h[:])); err != nil {
+		return err
+	}
 	return atomicWrite(m.paths.Logrotate, []byte(LogrotateConfig()), 0644)
 }
 func (m *Manager) maintainLog() error {
+	if m.verifyOwned() != nil {
+		return nil
+	}
 	if _, err := exec.LookPath("logrotate"); err == nil {
 		return nil
 	}
@@ -45,5 +54,17 @@ func (m *Manager) maintainLog() error {
 	if info.Size() <= rotateLogBytes {
 		return nil
 	}
-	return os.Truncate(m.paths.Log, 0)
+	f, err := openLogForTruncate(m.paths.Log)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	opened, err := f.Stat()
+	if err != nil || !opened.Mode().IsRegular() || !os.SameFile(info, opened) {
+		return ErrExternalCore
+	}
+	if err := m.verifyOwned(); err != nil {
+		return err
+	}
+	return f.Truncate(0)
 }
