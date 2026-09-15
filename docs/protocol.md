@@ -149,7 +149,7 @@
    "online":true,"last_seen":1757660000,"v4":true,"v6":false,
    "cpu":3.02,"cores":2,"mem":{"used":458000000,"total":1690000000},"swap":{"used":0},
    "disk":{"used":9720000000,"total":42000000000},"load":[0.04,0.03,0],
-   "net":{"up":303,"down":169,"out_total":126900000,"in_total":1557000000},
+   "net":{"up":303,"down":169,"out_total":126900000,"in_total":1557000000,"boot_out_total":126900000,"boot_in_total":1557000000},
    "conn":{"tcp":23,"udp":4},"procs":112,"uptime":172800,
    "expire_at":"2027-09-10","bandwidth":"3Mbps","price":99,"currency":"CNY","cycle":"year",
    "traffic":null,"ping":[],"core":null}
@@ -686,3 +686,11 @@ TOTP为RFC6238、SHA1、六位、30秒周期，允许前后一个时间步。密
 | GET /agent/vps-agent-linux-arm64.sha256 | 同上，供初次安装校验；不支持任意文件摘要 |
 
 发布目录VERSION来自镜像`/app/agent-dist/VERSION`并同步到数据目录，只有稳定版本可用于自动更新。初始安装脚本也下载固定摘要并在执行新二进制前校验。新增审计动作：`auth.totp_enable/disable/reset`、`settings.update`、`agent.update_requested`，不记录验证码、密钥或模板内容。
+
+### 流量显示口径切换
+
+`net.boot_in_total` / `net.boot_out_total` 是 Agent 已上报的原始系统网卡累计值（字节），通常从本次开机开始，包含接入探针之前的流量。沿用 Agent 的网卡排除规则，默认不计回环、容器网桥和隧道接口。机器重启或网卡计数器重置会使数值下降；它不是服务商账单数据，也不是跨重启的历史总量。
+
+未收到 metrics 的节点返回 `null`；离线后保留最后一次采样，服务端重启后需等待 Agent 再次上报。前端对缺少字段的旧服务端也显示未知，不用本期用量冒充系统累计。原有 `net.in_total/out_total` 和 `traffic` 保持账期统计语义，额度、告警和历史账单不受切换影响。
+
+总览和节点详情提供“本期流量 / 开机累计”切换，本期为默认，选择保存在当前浏览器。切换影响节点卡片出入站累计与总览的出站流量排序；顶部本期计费用量、套餐剩余、实时速率及历史曲线保持各自原有统计口径。无需升级 Agent。

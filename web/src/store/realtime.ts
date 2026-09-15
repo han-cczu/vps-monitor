@@ -95,6 +95,8 @@ function isSameServer(a: ServerSnapshot, b: ServerSnapshot): boolean {
     a.net.down === b.net.down &&
     a.net.out_total === b.net.out_total &&
     a.net.in_total === b.net.in_total &&
+    a.net.boot_out_total === b.net.boot_out_total &&
+    a.net.boot_in_total === b.net.boot_in_total &&
     a.conn.tcp === b.conn.tcp &&
     a.conn.udp === b.conn.udp &&
     a.load[0] === b.load[0] &&

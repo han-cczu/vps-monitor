@@ -53,7 +53,7 @@ export function SummaryBar() {
       <SummaryItem label="总上行" value={formatRate(summary.up)} />
       <SummaryItem label="总下行" value={formatRate(summary.down)} />
       <SummaryItem
-        label="本月总流量"
+        label="本期计费用量"
         value={formatBytes(summary.traffic)}
         hint="全部节点当前账期已用流量之和"
       />

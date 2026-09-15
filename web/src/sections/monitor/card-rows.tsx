@@ -4,6 +4,7 @@
 // 才单独成文件。三网延迟要到步骤 09 才有数据，那时再加一块。
 
 import type { ServerSnapshot } from 'src/types/realtime';
+import type { TrafficScope } from 'src/utils/traffic-display';
 
 import Box from '@mui/material/Box';
 import Divider from '@mui/material/Divider';
@@ -18,11 +19,24 @@ import { SegmentBar } from './segment-bar';
 // ----------------------------------------------------------------------
 
 /** 出站 / 入站累计。 */
-export function TotalsRow({ outTotal, inTotal }: { outTotal: number; inTotal: number }) {
+export function TotalsRow({
+  outTotal,
+  inTotal,
+  scope,
+}: {
+  outTotal: number | null;
+  inTotal: number | null;
+  scope: TrafficScope;
+}) {
+  const label = scope === 'boot' ? '开机累计' : '本期';
   return (
     <Box sx={{ gap: 2, display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
-      <MetaPair label="出站" value={formatBytes(outTotal)} />
-      <MetaPair label="入站" value={formatBytes(inTotal)} align="right" />
+      <MetaPair label={`出站 · ${label}`} value={outTotal === null ? '—' : formatBytes(outTotal)} />
+      <MetaPair
+        label={`入站 · ${label}`}
+        value={inTotal === null ? '—' : formatBytes(inTotal)}
+        align="right"
+      />
     </Box>
   );
 }
@@ -44,7 +58,7 @@ export function TrafficRow({ traffic }: { traffic: ServerSnapshot['traffic'] }) 
         sx={{ gap: 1, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}
       >
         <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-          剩余流量 {remaining}
+          本期剩余 {remaining}
         </Typography>
         <Typography
           variant="caption"

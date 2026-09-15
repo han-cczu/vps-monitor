@@ -4,8 +4,10 @@ import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 
 import { formatBytes } from 'src/utils/format';
+import { selectTrafficTotals } from 'src/utils/traffic-display';
 
 import { useServer } from 'src/store/realtime';
+import { useTrafficDisplay } from 'src/store/traffic-display';
 
 import { NetRow } from './net-row';
 import { PingRows } from './ping-rows';
@@ -27,12 +29,14 @@ type Props = {
  */
 export const ServerCard = memo(function ServerCard({ id }: Props) {
   const server = useServer(id);
+  const trafficScope = useTrafficDisplay((state) => state.scope);
 
   if (!server) {
     return null;
   }
 
   const memPercent = ratio(server.mem.used, server.mem.total);
+  const totals = selectTrafficTotals(server, trafficScope);
   const diskPercent = ratio(server.disk.used, server.disk.total);
   // 负载没有天然的百分比，按「每核 1.0 算满」折算，多核机器才不会一直顶格
   const loadPercent = server.cores ? (server.load[0] / server.cores) * 100 : 0;
@@ -90,7 +94,7 @@ export const ServerCard = memo(function ServerCard({ id }: Props) {
       {/* 离线后这两个速率是最后一帧的旧值，继续当实时值显示会误导；置零让折线自然走平 */}
       <NetRow up={server.online ? server.net.up : 0} down={server.online ? server.net.down : 0} />
 
-      <TotalsRow outTotal={server.net.out_total} inTotal={server.net.in_total} />
+      <TotalsRow outTotal={totals.out} inTotal={totals.in} scope={trafficScope} />
 
       <TrafficRow traffic={server.traffic} />
 

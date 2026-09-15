@@ -22,6 +22,7 @@ import { LoadingScreen } from 'src/components/loading-screen';
 import { CustomBreadcrumbs } from 'src/components/custom-breadcrumbs';
 
 import { ServerCard } from 'src/sections/monitor/server-card';
+import { TrafficScopeControl } from 'src/sections/monitor/traffic-scope-control';
 
 import { HISTORY_RANGES } from 'src/types/history';
 
@@ -80,6 +81,7 @@ export function ServerDetailView() {
       />
 
       <Box sx={{ gap: 3, display: 'flex', flexDirection: 'column' }}>
+        <TrafficScopeControl />
         <Box
           sx={{
             gap: 3,

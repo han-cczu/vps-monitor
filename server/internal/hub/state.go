@@ -266,6 +266,9 @@ type NetView struct {
 	Down     int64 `json:"down"`      // 下行瞬时速率
 	OutTotal int64 `json:"out_total"` // 累计发出字节
 	InTotal  int64 `json:"in_total"`  // 累计收到字节
+	// 原始系统网卡计数；没有收到 metrics 时为 null，不能用账期用量代替。
+	BootOutTotal *int64 `json:"boot_out_total"`
+	BootInTotal  *int64 `json:"boot_in_total"`
 }
 
 type ConnView struct {
@@ -431,7 +434,11 @@ func (r *Registry) viewFor(s *store.Server) ServerView {
 		v.Swap.Used = m.SwapUsed
 		v.Disk.Used = m.DiskUsed
 		v.Load = m.Load
-		v.Net = NetView{Up: m.Net.TxRate, Down: m.Net.RxRate, OutTotal: m.Net.TxTotal, InTotal: m.Net.RxTotal}
+		bootOut, bootIn := m.Net.TxTotal, m.Net.RxTotal
+		v.Net = NetView{
+			Up: m.Net.TxRate, Down: m.Net.RxRate, OutTotal: m.Net.TxTotal, InTotal: m.Net.RxTotal,
+			BootOutTotal: &bootOut, BootInTotal: &bootIn,
+		}
 		v.Conn = ConnView{TCP: m.TCP, UDP: m.UDP}
 		v.Procs = m.Procs
 		v.Uptime = m.Uptime

@@ -23,12 +23,15 @@ export type SwapStat = {
   used: number;
 };
 
-/** 网络：up / down 是瞬时速率（字节每秒），*_total 是累计字节 */
+/** 网络：up / down 是瞬时速率；in_total / out_total 是当前账期累计字节。 */
 export type NetStat = {
   up: number;
   down: number;
   out_total: number;
   in_total: number;
+  /** 系统网卡原始累计，通常从开机开始；旧服务端或尚无采样时不可用。 */
+  boot_out_total?: number | null;
+  boot_in_total?: number | null;
 };
 
 /** 连接数 */
