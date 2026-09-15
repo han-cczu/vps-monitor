@@ -3,6 +3,7 @@ package traffic
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"math"
 	"sync"
@@ -52,17 +53,24 @@ func (a *Accountant) Load(ctx context.Context) error {
 
 // Reload also makes newly-created nodes eligible before their first agent sample.
 func (a *Accountant) Reload(ctx context.Context) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	servers, err := a.db.ListServers(ctx)
 	if err != nil {
 		return err
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	next := map[int64]store.Server{}
 	for _, s := range servers {
 		next[s.ID] = s
 		if _, ok := a.periods[s.ID]; !ok {
-			a.periods[s.ID] = store.TrafficPeriod{ServerID: s.ID, Start: PeriodStart(a.now(), s.TrafficResetDay).Unix()}
+			p, err := a.db.CurrentTrafficPeriod(ctx, s.ID)
+			if errors.Is(err, store.ErrNotFound) {
+				p = NewPeriod(a.now(), s.TrafficResetMode, s.TrafficResetDay)
+				p.ServerID = s.ID
+			} else if err != nil {
+				return err
+			}
+			a.periods[s.ID] = p
 			a.dirty = true
 		}
 	}
@@ -176,11 +184,11 @@ func NextBoundary(start time.Time, day int) time.Time {
 func (a *Accountant) roll(id int64, today time.Time) {
 	p := a.periods[id]
 	s := a.servers[id]
-	for boundary := NextBoundary(time.Unix(p.Start, 0).In(today.Location()), s.TrafficResetDay); !boundary.After(today); boundary = NextBoundary(boundary, s.TrafficResetDay) {
+	for boundary := periodBoundary(p, s, today.Location()); !boundary.After(today); boundary = periodBoundary(p, s, today.Location()) {
 		end := boundary.Unix()
 		p.End = &end
 		a.closed = append(a.closed, p)
-		p = store.TrafficPeriod{ServerID: id, Start: end}
+		p = store.TrafficPeriod{ServerID: id, Start: end, NextReset: NextResetDate(boundary, s.TrafficResetMode, s.TrafficResetDay).Unix()}
 		a.dirty = true
 	}
 	a.periods[id] = p
@@ -233,8 +241,9 @@ func (a *Accountant) SnapshotFor(id int64) *hub.TrafficView {
 	if !ok {
 		return nil
 	}
+	a.roll(id, a.now())
 	p := a.periods[id]
-	return &hub.TrafficView{Used: Used(p, s.TrafficMode), Limit: s.TrafficLimit, Mode: s.TrafficMode, In: p.In, Out: p.Out, PeriodStart: p.Start, PeriodEndExpected: NextBoundary(time.Unix(p.Start, 0).In(clock.Location()), s.TrafficResetDay).Unix()}
+	return &hub.TrafficView{Used: Used(p, s.TrafficMode), Limit: s.TrafficLimit, Mode: s.TrafficMode, In: p.In, Out: p.Out, PeriodStart: p.Start, PeriodEndExpected: periodBoundary(p, s, a.now().Location()).Unix()}
 }
 
 func (a *Accountant) Run(ctx context.Context) {

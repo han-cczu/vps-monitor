@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"vpsmon/server/internal/store"
+	"vpsmon/server/internal/traffic"
 )
 
 // 节点字段的长度与取值上限。前端表单用同一套规则，这里是最终防线。
@@ -39,22 +40,27 @@ var (
 
 // serverRequest 是创建 / 更新节点的请求体。PUT 是全量覆盖：没传的字段按缺省值处理。
 type serverRequest struct {
-	Name            string   `json:"name"`
-	Region          string   `json:"region"`
-	GroupName       string   `json:"group_name"`
-	Tags            []string `json:"tags"`
-	SortOrder       int64    `json:"sort_order"`
-	PublicHost      string   `json:"public_host"`
-	Price           float64  `json:"price"`
-	Currency        string   `json:"currency"`
-	BillingCycle    string   `json:"billing_cycle"`
-	ExpireAt        *string  `json:"expire_at"`
-	AutoRenew       bool     `json:"auto_renew"`
-	TrafficLimit    int64    `json:"traffic_limit"`
-	TrafficResetDay int      `json:"traffic_reset_day"`
-	TrafficMode     string   `json:"traffic_mode"`
-	BandwidthLabel  string   `json:"bandwidth_label"`
-	Note            string   `json:"note"`
+	Name                  string   `json:"name"`
+	Region                string   `json:"region"`
+	GroupName             string   `json:"group_name"`
+	Tags                  []string `json:"tags"`
+	SortOrder             int64    `json:"sort_order"`
+	PublicHost            string   `json:"public_host"`
+	Price                 float64  `json:"price"`
+	Currency              string   `json:"currency"`
+	BillingCycle          string   `json:"billing_cycle"`
+	ExpireAt              *string  `json:"expire_at"`
+	AutoRenew             bool     `json:"auto_renew"`
+	TrafficLimit          int64    `json:"traffic_limit"`
+	TrafficResetDay       int      `json:"traffic_reset_day"`
+	TrafficResetMode      string   `json:"traffic_reset_mode"`
+	TrafficPeriodStart    *string  `json:"traffic_period_start"`
+	TrafficNextReset      *string  `json:"traffic_next_reset"`
+	TrafficExpectedStart  *int64   `json:"traffic_expected_start"`
+	TrafficPeriodRevision *int64   `json:"traffic_period_revision"`
+	TrafficMode           string   `json:"traffic_mode"`
+	BandwidthLabel        string   `json:"bandwidth_label"`
+	Note                  string   `json:"note"`
 }
 
 // toInput 校验并规范化请求体。返回的 error 是给用户看的中文提示，直接进 400 响应。
@@ -126,6 +132,17 @@ func (req serverRequest) toInput() (store.ServerInput, error) {
 	if resetDay < 1 || resetDay > 31 {
 		return in, errors.New("流量重置日需要在 1–31 之间")
 	}
+	resetMode := req.TrafficResetMode
+	if resetMode == "" {
+		resetMode = "days"
+		// Older clients explicitly supplying a reset day keep their monthly rule.
+		if req.TrafficResetDay != 0 {
+			resetMode = "monthly"
+		}
+	}
+	if resetMode != "monthly" && resetMode != "days" {
+		return in, errors.New("流量重置周期只能是每 30 天或每月指定日期")
+	}
 
 	trafficMode := strings.TrimSpace(req.TrafficMode)
 	if trafficMode == "" {
@@ -146,23 +163,67 @@ func (req serverRequest) toInput() (store.ServerInput, error) {
 	}
 
 	return store.ServerInput{
-		Name:            name,
-		Region:          region,
-		GroupName:       groupName,
-		Tags:            tags,
-		SortOrder:       req.SortOrder,
-		PublicHost:      publicHost,
-		Price:           req.Price,
-		Currency:        currency,
-		BillingCycle:    billingCycle,
-		ExpireAt:        expireAt,
-		AutoRenew:       req.AutoRenew,
-		TrafficLimit:    req.TrafficLimit,
-		TrafficResetDay: resetDay,
-		TrafficMode:     trafficMode,
-		BandwidthLabel:  bandwidthLabel,
-		Note:            note,
+		Name:             name,
+		Region:           region,
+		GroupName:        groupName,
+		Tags:             tags,
+		SortOrder:        req.SortOrder,
+		PublicHost:       publicHost,
+		Price:            req.Price,
+		Currency:         currency,
+		BillingCycle:     billingCycle,
+		ExpireAt:         expireAt,
+		AutoRenew:        req.AutoRenew,
+		TrafficLimit:     req.TrafficLimit,
+		TrafficResetDay:  resetDay,
+		TrafficResetMode: resetMode,
+		TrafficMode:      trafficMode,
+		BandwidthLabel:   bandwidthLabel,
+		Note:             note,
 	}, nil
+}
+
+func (req serverRequest) scheduleInput(in store.ServerInput, now time.Time, creating bool) (*traffic.ScheduleInput, error) {
+	if !creating && req.TrafficPeriodStart == nil && req.TrafficNextReset == nil {
+		return nil, nil
+	}
+	p := traffic.NewPeriod(now, in.TrafficResetMode, in.TrafficResetDay)
+	parse := func(raw *string, label string) (time.Time, error) {
+		if raw == nil {
+			return time.Time{}, fmt.Errorf("请填写%s", label)
+		}
+		d, err := time.ParseInLocation(time.DateOnly, *raw, now.Location())
+		if err != nil {
+			return time.Time{}, fmt.Errorf("%s需要是 YYYY-MM-DD 格式的有效日期", label)
+		}
+		return d, nil
+	}
+	if req.TrafficPeriodStart != nil || !creating {
+		start, err := parse(req.TrafficPeriodStart, "本期流量开始日期")
+		if err != nil {
+			return nil, err
+		}
+		p.Start = start.Unix()
+		p.NextReset = traffic.NextResetDate(start, in.TrafficResetMode, in.TrafficResetDay).Unix()
+	}
+	if req.TrafficNextReset != nil {
+		next, err := parse(req.TrafficNextReset, "下次重置日期")
+		if err != nil {
+			return nil, err
+		}
+		p.NextReset = next.Unix()
+	}
+	if err := traffic.ValidatePeriod(p.Start, p.NextReset, now); err != nil {
+		return nil, err
+	}
+	input := &traffic.ScheduleInput{Start: p.Start, NextReset: p.NextReset}
+	if !creating {
+		if req.TrafficExpectedStart == nil || req.TrafficPeriodRevision == nil || *req.TrafficExpectedStart <= 0 || *req.TrafficPeriodRevision < 0 {
+			return nil, errors.New("请刷新节点信息后再修改流量周期")
+		}
+		input.ExpectedStart, input.Revision = *req.TrafficExpectedStart, *req.TrafficPeriodRevision
+	}
+	return input, nil
 }
 
 // normalizeRegion 接受空串或 ISO 3166-1 alpha-2，小写自动转大写。
