@@ -11,40 +11,47 @@ import (
 
 	"vpsmon/server/internal/audit"
 	"vpsmon/server/internal/auth"
+	"vpsmon/server/internal/clock"
 	"vpsmon/server/internal/store"
+	"vpsmon/server/internal/traffic"
 )
 
 // serverConfigDTO 是节点的持久化配置。字段名用蛇形，与设计方案 §7.3 的快照结构一致，
 // 步骤 06 的前端可以用同一套类型。（auth 的 user 对象是 camelCase，那是为了对齐前端 starter。）
 type serverConfigDTO struct {
-	ID              int64    `json:"id"`
-	Name            string   `json:"name"`
-	Region          string   `json:"region"`
-	GroupName       string   `json:"group_name"`
-	Tags            []string `json:"tags"`
-	SortOrder       int64    `json:"sort_order"`
-	PublicHost      string   `json:"public_host"`
-	Price           float64  `json:"price"`
-	Currency        string   `json:"currency"`
-	BillingCycle    string   `json:"billing_cycle"`
-	ExpireAt        *string  `json:"expire_at"`
-	AutoRenew       bool     `json:"auto_renew"`
-	TrafficLimit    int64    `json:"traffic_limit"`
-	TrafficResetDay int      `json:"traffic_reset_day"`
-	TrafficMode     string   `json:"traffic_mode"`
-	BandwidthLabel  string   `json:"bandwidth_label"`
-	Note            string   `json:"note"`
-	CreatedAt       int64    `json:"created_at"`
-	UpdatedAt       int64    `json:"updated_at"`
+	ID               int64    `json:"id"`
+	Name             string   `json:"name"`
+	Region           string   `json:"region"`
+	GroupName        string   `json:"group_name"`
+	Tags             []string `json:"tags"`
+	SortOrder        int64    `json:"sort_order"`
+	PublicHost       string   `json:"public_host"`
+	Price            float64  `json:"price"`
+	Currency         string   `json:"currency"`
+	BillingCycle     string   `json:"billing_cycle"`
+	ExpireAt         *string  `json:"expire_at"`
+	AutoRenew        bool     `json:"auto_renew"`
+	TrafficLimit     int64    `json:"traffic_limit"`
+	TrafficResetDay  int      `json:"traffic_reset_day"`
+	TrafficResetMode string   `json:"traffic_reset_mode"`
+	TrafficMode      string   `json:"traffic_mode"`
+	BandwidthLabel   string   `json:"bandwidth_label"`
+	Note             string   `json:"note"`
+	CreatedAt        int64    `json:"created_at"`
+	UpdatedAt        int64    `json:"updated_at"`
 }
 
 // serverDTO 是配置加上实时状态。online / last_seen 来自 hub 的内存态（步骤 05 起）。
 type serverDTO struct {
 	serverConfigDTO
-	Online      bool     `json:"online"`
-	LastSeen    *int64   `json:"last_seen"`
-	Host        *hostDTO `json:"host"`
-	TrafficUsed int64    `json:"traffic_used"`
+	Online                bool     `json:"online"`
+	LastSeen              *int64   `json:"last_seen"`
+	Host                  *hostDTO `json:"host"`
+	TrafficUsed           int64    `json:"traffic_used"`
+	TrafficPeriodStart    string   `json:"traffic_period_start"`
+	TrafficNextReset      string   `json:"traffic_next_reset"`
+	TrafficExpectedStart  int64    `json:"traffic_expected_start"`
+	TrafficPeriodRevision int64    `json:"traffic_period_revision"`
 }
 
 // hostDTO 是 agent 上报的静态信息（步骤 05 起才有值）。
@@ -67,25 +74,26 @@ type hostDTO struct {
 
 func toServerConfigDTO(s *store.Server) serverConfigDTO {
 	return serverConfigDTO{
-		ID:              s.ID,
-		Name:            s.Name,
-		Region:          s.Region,
-		GroupName:       s.GroupName,
-		Tags:            s.Tags,
-		SortOrder:       s.SortOrder,
-		PublicHost:      s.PublicHost,
-		Price:           s.Price,
-		Currency:        s.Currency,
-		BillingCycle:    s.BillingCycle,
-		ExpireAt:        s.ExpireAt,
-		AutoRenew:       s.AutoRenew,
-		TrafficLimit:    s.TrafficLimit,
-		TrafficResetDay: s.TrafficResetDay,
-		TrafficMode:     s.TrafficMode,
-		BandwidthLabel:  s.BandwidthLabel,
-		Note:            s.Note,
-		CreatedAt:       s.CreatedAt,
-		UpdatedAt:       s.UpdatedAt,
+		ID:               s.ID,
+		Name:             s.Name,
+		Region:           s.Region,
+		GroupName:        s.GroupName,
+		Tags:             s.Tags,
+		SortOrder:        s.SortOrder,
+		PublicHost:       s.PublicHost,
+		Price:            s.Price,
+		Currency:         s.Currency,
+		BillingCycle:     s.BillingCycle,
+		ExpireAt:         s.ExpireAt,
+		AutoRenew:        s.AutoRenew,
+		TrafficLimit:     s.TrafficLimit,
+		TrafficResetDay:  s.TrafficResetDay,
+		TrafficResetMode: s.TrafficResetMode,
+		TrafficMode:      s.TrafficMode,
+		BandwidthLabel:   s.BandwidthLabel,
+		Note:             s.Note,
+		CreatedAt:        s.CreatedAt,
+		UpdatedAt:        s.UpdatedAt,
 	}
 }
 
@@ -170,6 +178,12 @@ func (d *Deps) createServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	schedule, err := req.scheduleInput(in, clock.Now(), true)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	in.TrafficPeriod = &store.TrafficPeriod{Start: schedule.Start, NextReset: schedule.NextReset}
 
 	token, err := auth.NewAgentToken()
 	if err != nil {
@@ -196,7 +210,7 @@ func (d *Deps) createServer(w http.ResponseWriter, r *http.Request) {
 
 	// 刚创建的节点还没有 agent 连过，online=false、host=null 是事实，不是占位。
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"server":          toServerDTO(s, nil, false, nil),
+		"server":          d.withTraffic(toServerDTO(s, nil, false, nil)),
 		"token":           token,
 		"install_command": installCommand(d.publicBase(r), token),
 	})
@@ -213,14 +227,38 @@ func (d *Deps) updateServer(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	// Old clients do not know about reset modes; editing another field must not
+	// silently turn an existing 30-day schedule into a monthly one.
+	if req.TrafficResetMode == "" {
+		req.TrafficResetMode = before.TrafficResetMode
+	}
 	in, err := req.toInput()
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	updated, err := d.DB.UpdateServer(r.Context(), before.ID, in)
+	schedule, err := req.scheduleInput(in, clock.Now(), false)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var updated *store.Server
+	if d.Traffic != nil {
+		updated, err = d.Traffic.UpdateServer(r.Context(), before.ID, in, schedule)
+	} else if schedule != nil {
+		writeError(w, http.StatusServiceUnavailable, "流量统计尚未就绪，请稍后修改流量周期")
+		return
+	} else {
+		updated, err = d.DB.UpdateServer(r.Context(), before.ID, in)
+	}
 	switch {
+	case errors.Is(err, traffic.ErrScheduleChanged), errors.Is(err, store.ErrTrafficConfigChanged):
+		writeError(w, http.StatusConflict, traffic.ErrScheduleChanged.Error())
+		return
+	case errors.Is(err, traffic.ErrScheduleDates), errors.Is(err, store.ErrTrafficPeriodOverlap):
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	case errors.Is(err, store.ErrNotFound):
 		notFoundServer(w)
 		return

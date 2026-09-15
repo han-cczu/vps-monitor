@@ -255,12 +255,18 @@
 | `price` | 0 ≤ price ≤ 1e9 |
 | `currency` | 空（按 `CNY`）或三位 ISO 4217；小写自动转大写 |
 | `billing_cycle` | `month` / `quarter` / `year` / `once`，空按 `month` |
-| `expire_at` | `null`、空串或 `YYYY-MM-DD`（回写成标准格式） |
+| `expire_at` | VPS 套餐到期日，与流量周期独立；`null`、空串或 `YYYY-MM-DD`（回写成标准格式） |
 | `traffic_limit` | ≥ 0 的字节数，0 = 不限 |
 | `traffic_reset_day` | 1–31，0 或缺省按 1 |
+| `traffic_reset_mode` | `days` = 每 30 个日历日；`monthly` = 每月指定日期。新建默认 `days`；旧客户端明确传重置日时保留月度规则，升级前的节点保持 `monthly` |
+| `traffic_period_start` | 本期流量开始日期，`YYYY-MM-DD`，可手动填写；新增的 30 天周期缺省从今天开始。不得晚于今天或与已结束的周期重叠 |
+| `traffic_next_reset` | 下次重置日期，`YYYY-MM-DD`，必须晚于今天及本期开始日期。省略时按开始日期及规则计算；手动日期只用于本期，后续按所选规则继续 |
+| `traffic_expected_start` / `traffic_period_revision` | GET 返回当前周期起点 Unix 秒及版本。PUT 修改日期时必须原样带回；期间发生重置、校准或改期返回 409，需重新打开编辑表单 |
 | `traffic_mode` | `out` / `in` / `sum` / `max`，空按 `max` |
 | `bandwidth_label` | ≤ 32 字符 |
 | `note` | ≤ 500 字符 |
+
+流量日期按面板时区解释；每 30 天与每月同日不同（如 8/15 起算分别在 9/14、9/15 重置）。PUT 仅修改其他字段时省略两个流量日期，保留当前周期。手动改期与节点配置在同一事务内保存，保留本期入站、出站累计、原始采样基线及已结束的历史；写入 `server.traffic.schedule` 审计记录。校正日期不补算未采集的用量，接入前的实际用量仍通过“校准本期流量”录入。
 
 **agent token**：32 字节随机数的 base64url（43 个字符）。库里只存 `sha256` hex，明文只在创建与重置的响应里出现一次，
 列表与详情都拿不到；丢了只能重置。token 不用 argon2——它没有穷举空间，而 agent 每次重连都要校验一次。

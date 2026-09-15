@@ -7,6 +7,7 @@ export type BillingCycle = 'month' | 'quarter' | 'year' | 'once';
 
 /** 流量统计模式：出站 / 入站 / 出+入 / 取较大者 */
 export type TrafficMode = 'out' | 'in' | 'sum' | 'max';
+export type TrafficResetMode = 'days' | 'monthly';
 
 /** agent 上报的静态信息，步骤 05 起才有值 */
 export type ServerHostInfo = {
@@ -43,6 +44,12 @@ export type ServerPayload = {
   /** 字节，0 = 不限 */
   traffic_limit: number;
   traffic_reset_day: number;
+  traffic_reset_mode: TrafficResetMode;
+  /** 本期日期按面板时区解释。编辑时仅在修改周期时提交。 */
+  traffic_period_start?: string;
+  traffic_next_reset?: string;
+  traffic_expected_start?: number;
+  traffic_period_revision?: number;
   traffic_mode: TrafficMode;
   bandwidth_label: string;
   note: string;
