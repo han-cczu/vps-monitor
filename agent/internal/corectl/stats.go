@@ -72,6 +72,9 @@ func counterSlice(m map[string]proto.Counter) []proto.Counter {
 }
 
 func (m *Manager) Stats(ctx context.Context) (proto.CoreStats, error) {
+	if err := m.verifyOwned(); err != nil {
+		return proto.CoreStats{}, err
+	}
 	m.statsMu.Lock()
 	defer m.statsMu.Unlock()
 	if m.statsClient == nil {

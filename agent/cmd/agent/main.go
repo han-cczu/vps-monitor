@@ -22,6 +22,7 @@ import (
 	"vpsmon/agent/internal/config"
 	"vpsmon/agent/internal/corectl"
 	"vpsmon/agent/internal/ping"
+	"vpsmon/agent/internal/proxyobserve"
 	"vpsmon/agent/internal/selfupdate"
 	"vpsmon/agent/internal/transport"
 	"vpsmon/proto"
@@ -35,6 +36,13 @@ var version = "dev"
 const hostInfoTTL = 5 * time.Minute
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "observe" {
+		if err := runObserve(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "core" {
 		setLogger(slog.LevelInfo)
 		if err := runCore(os.Args[2:]); err != nil {
@@ -108,8 +116,26 @@ func run(configPath string, once bool) error {
 		}
 	})
 	defer pinger.Stop()
-	core, err := corectl.New(corectl.Options{Server: cfg.Server, Token: cfg.Token, StatsAddress: cfg.Core.StatsAddress,
-		Send: func(v any) error { return client.Send(v) }, Connected: func() bool { return client.Connected() }})
+	var core *corectl.Manager
+	var makeHello func() proto.Hello
+	var lastManagement atomic.Value
+	core, err = corectl.New(corectl.Options{Server: cfg.Server, Token: cfg.Token, StatsAddress: cfg.Core.StatsAddress,
+		ObserveOnly: cfg.Core.Mode == "observe", ExternalPresent: proxyobserve.ExternalPresent,
+		Send: func(v any) error {
+			if client == nil {
+				return transport.ErrNotConnected
+			}
+			if makeHello != nil && core.Management() != lastManagement.Load() {
+				if err := client.Send(makeHello()); err != nil {
+					return err
+				}
+			}
+			return client.Send(v)
+		}, Connected: func() bool { return client.Connected() }})
+	if err != nil {
+		return err
+	}
+	observer, err := proxyobserve.New(proxyobserve.Options{Config: cfg.ProxyObserve, ManagedInstance: core.OwnsInstance, Send: func(v any) error { return client.Send(v) }})
 	if err != nil {
 		return err
 	}
@@ -118,21 +144,27 @@ func run(configPath string, once bool) error {
 	if err != nil {
 		return err
 	}
+	makeHello = func() proto.Hello {
+		management := core.Management()
+		lastManagement.Store(management)
+		return proto.Hello{Type: proto.TypeHello, ProtoVersion: proto.Version, Version: version, Capabilities: []string{proto.TypeAgentUpdate, proto.ProxyObserveCapability}, ProxyManagement: management, Host: host.get(), AppliedRevision: core.AppliedRevision()}
+	}
 	client = transport.New(transport.Options{
 		Server:  cfg.Server,
 		Token:   cfg.Token,
 		Version: version,
-		Hello: func() proto.Hello {
-			return proto.Hello{
-				Capabilities:    []string{proto.TypeAgentUpdate},
-				Type:            proto.TypeHello,
-				ProtoVersion:    proto.Version,
-				Version:         version,
-				Host:            host.get(),
-				AppliedRevision: core.AppliedRevision(),
-			}
-		},
+		Hello:   makeHello,
 		OnMessage: func(msgType string, raw []byte) {
+			if msgType == proto.TypeConfig {
+				var c proto.Config
+				if json.Unmarshal(raw, &c) == nil {
+					observer.Negotiate(c.ProxyObserveSession)
+				}
+			}
+			if msgType == proto.TypeProxyRefresh {
+				observer.Refresh()
+				return
+			}
 			if msgType == proto.TypeAgentUpdate {
 				if err := updater.Handle(raw); err != nil {
 					slog.Warn("agent update rejected", "err", err)
@@ -142,7 +174,7 @@ func run(configPath string, once bool) error {
 			}
 			handleMessage(msgType, raw, &reportInterval, pinger, core, client)
 		},
-		OnConnect: core.RequestState,
+		OnConnect: func() { observer.Negotiate(""); core.RequestState() },
 	})
 
 	slog.Info("agent 启动",
@@ -155,6 +187,7 @@ func run(configPath string, once bool) error {
 	var workers sync.WaitGroup
 	workers.Go(func() { core.Run(ctx) })
 	workers.Go(func() { updater.Run(ctx) })
+	workers.Go(func() { observer.Run(ctx) })
 	<-core.Ready() // Recover interrupted config replacement before the first hello.
 	workers.Go(func() { client.Run(ctx) })
 	sampleLoop(ctx, sampler, client, &reportInterval)

@@ -39,6 +39,9 @@ func downloadURL(server, version, arch string) (string, error) {
 }
 
 func (m *Manager) install(ctx context.Context, a proto.CoreAction) error {
+	if err := m.installPermission(); err != nil {
+		return err
+	}
 	if runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64" {
 		return fmt.Errorf("unsupported architecture")
 	}
@@ -115,13 +118,34 @@ func (m *Manager) install(ctx context.Context, a proto.CoreAction) error {
 		return unitErr
 	}
 	unit := []byte(ServiceUnit())
+	if err = m.installPermission(); err != nil {
+		return err
+	}
+	if _, e := os.Stat(m.ownerPath()); os.IsNotExist(e) {
+		if err = m.claimEmptyOwner(); err != nil {
+			return err
+		}
+	}
+	if err = m.allowResource(m.paths.Binary, a.SHA256); err != nil {
+		return err
+	}
+	unitHash := sha256.Sum256(unit)
+	if err = m.allowResource(m.paths.Unit, hex.EncodeToString(unitHash[:])); err != nil {
+		return err
+	}
 	changed := string(oldUnit) != string(unit)
 	if changed {
+		if err = m.verifyOwned(); err != nil {
+			return err
+		}
 		if err = atomicWrite(m.paths.Unit, unit, 0644); err != nil {
 			return err
 		}
 	}
 	rollback := func(cause error) error {
+		if err := m.verifyOwned(); err != nil {
+			return err
+		}
 		var restore error
 		if readErr == nil {
 			restore = atomicWrite(m.paths.Binary, old, 0755)
@@ -148,6 +172,9 @@ func (m *Manager) install(ctx context.Context, a proto.CoreAction) error {
 		}
 		return cause
 	}
+	if err = m.verifyOwned(); err != nil {
+		return err
+	}
 	if err = os.Rename(tmp, m.paths.Binary); err != nil {
 		return rollback(err)
 	}
@@ -167,5 +194,5 @@ func (m *Manager) install(ctx context.Context, a proto.CoreAction) error {
 	if err = m.save(r); err != nil {
 		return rollback(err)
 	}
-	return nil
+	return m.sealOwner()
 }

@@ -43,6 +43,9 @@ func (s *Service) SaveInbound(ctx context.Context, serverID, id int64, in Inboun
 		if err := q.ServerExists(ctx, serverID); err != nil {
 			return err
 		}
+		if err := s.guard(serverID); err != nil {
+			return err
+		}
 		if in.ListenPort != nil {
 			i.ListenPort = *in.ListenPort
 		}
@@ -118,6 +121,9 @@ func (s *Service) DeleteInbound(ctx context.Context, id int64) error {
 			return err
 		}
 		serverID = i.ServerID
+		if err := s.guard(serverID); err != nil {
+			return err
+		}
 		if err = q.DeleteInbound(ctx, id); err != nil {
 			return err
 		}
@@ -133,6 +139,9 @@ func (s *Service) RegenerateKeys(ctx context.Context, id int64) (*store.Inbound,
 	err := s.db.WithProxyTx(ctx, func(q store.ProxyQueries) error {
 		before, err := q.Inbound(ctx, id)
 		if err != nil {
+			return err
+		}
+		if err := s.guard(before.ServerID); err != nil {
 			return err
 		}
 		if before.Protocol == "tuic" {
@@ -159,6 +168,9 @@ func (s *Service) RegenerateKeys(ctx context.Context, id int64) (*store.Inbound,
 	return result, err
 }
 func (s *Service) RegenerateCert(ctx context.Context, serverID int64, sni string) (*certs.Cert, error) {
+	if err := s.guard(serverID); err != nil {
+		return nil, err
+	}
 	var result *certs.Cert
 	err := s.db.WithProxyTx(ctx, func(q store.ProxyQueries) error {
 		if err := q.ServerExists(ctx, serverID); err != nil {

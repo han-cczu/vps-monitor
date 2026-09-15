@@ -39,6 +39,7 @@ import (
 	"vpsmon/server/internal/ping"
 	"vpsmon/server/internal/proxy"
 	"vpsmon/server/internal/proxy/sub"
+	"vpsmon/server/internal/proxyobserve"
 	"vpsmon/server/internal/store"
 	"vpsmon/server/internal/traffic"
 	"vpsmon/server/web"
@@ -296,8 +297,9 @@ func run() error {
 
 	var enforcer *proxy.Enforcer
 	reconciler := proxy.NewReconciler(db, proxy.ReconcilerOptions{
-		AfterStats: func(ctx context.Context) error { return enforcer.RunOnce(ctx) },
-		Agents:     realtime.Agents, Check: cores.CheckConfig,
+		AllowManage: realtime.Agents.CanManageProxy,
+		AfterStats:  func(ctx context.Context) error { return enforcer.RunOnce(ctx) },
+		Agents:      realtime.Agents, Check: cores.CheckConfig,
 		Artifact: func(ctx context.Context, v, a string) (corefiles.Artifact, error) {
 			f, meta, err := cores.Open(v, a)
 			if f != nil {
@@ -315,6 +317,13 @@ func run() error {
 	}
 	reconciler.Stats.BeforeIngest = enforcer.EnsurePeriods
 	proxyService := proxy.New(db, reconciler)
+	proxyService.AllowManage = func(id int64) bool { return realtime.Agents.CanManageProxy(id, true) }
+	observations := proxyobserve.New(db)
+	realtime.Agents.OnObservation(func(ctx context.Context, id int64, session string, raw []byte) {
+		if err := observations.Receive(ctx, id, session, raw); err != nil {
+			slog.Warn("代理观测快照未接受", "server_id", id, "error", err)
+		}
+	})
 	proxyService.Events = realtime.Bus.Publish
 	realtime.Agents.OnCore(reconciler.Handle, reconciler.OnAgentHello)
 	realtime.Registry.SetCoreSource(reconciler.SnapshotFor)
@@ -350,6 +359,7 @@ func run() error {
 		CoreFiles:        cores,
 		Proxy:            proxyService,
 		Reconciler:       reconciler,
+		ProxyObserve:     observations,
 		Traffic:          accountant,
 		Alerts:           alerts,
 		SettingsDefaults: map[string]any{"sub.clash_template": sub.DefaultClashTemplate},

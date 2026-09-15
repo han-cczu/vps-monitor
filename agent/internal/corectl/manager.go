@@ -14,6 +14,8 @@ import (
 )
 
 type Options struct {
+	ObserveOnly                 bool
+	ExternalPresent             func() bool
 	Server, Token, StatsAddress string
 	Paths                       Paths
 	Runner                      Runner
@@ -22,6 +24,9 @@ type Options struct {
 }
 
 type Manager struct {
+	invalidOwnership                           bool
+	observeOnly                                bool
+	externalPresent                            func() bool
 	paths                                      Paths
 	runner                                     Runner
 	server, token, statsAddress                string
@@ -60,10 +65,11 @@ func New(o Options) (*Manager, error) {
 		return nil, err
 	}
 	r, err := readRecord(o.Paths.State)
-	if err != nil {
-		return nil, err
+	invalidOwnership := err != nil
+	if invalidOwnership {
+		r = record{}
 	}
-	m := &Manager{paths: o.Paths, runner: o.Runner, server: o.Server, token: o.Token, statsAddress: o.StatsAddress, send: o.Send, connected: o.Connected, record: r,
+	m := &Manager{invalidOwnership: invalidOwnership, observeOnly: o.ObserveOnly, externalPresent: o.ExternalPresent, paths: o.Paths, runner: o.Runner, server: o.Server, token: o.Token, statsAddress: o.StatsAddress, send: o.Send, connected: o.Connected, record: r,
 		queue: make(chan any, 4), stateRequested: make(chan struct{}, 1), ready: make(chan struct{}), healthTimeout: 5 * time.Second, healthInterval: 200 * time.Millisecond, pollInterval: 10 * time.Second, stateInterval: 60 * time.Second, statsInterval: 10 * time.Second}
 	m.listening = func() ([]string, error) { return Listening(m.paths.Proc) }
 	return m, nil
@@ -107,6 +113,9 @@ func (m *Manager) Handle(raw []byte) error {
 		return fmt.Errorf("unsupported core message type")
 	}
 	if err != nil {
+		return err
+	}
+	if err := m.guardJob(job); err != nil {
 		return err
 	}
 	select {
@@ -167,6 +176,9 @@ func (m *Manager) Execute(ctx context.Context, job any) (proto.CoreState, error)
 		return m.emitState(ctx, "", err), err
 	}
 	err := m.withLock(ctx, func() error {
+		if err := m.guardJob(job); err != nil {
+			return err
+		}
 		if err := m.recoverApply(ctx); err != nil {
 			return err
 		}
@@ -214,7 +226,12 @@ func (m *Manager) withLock(ctx context.Context, f func() error) error {
 
 func (m *Manager) Run(ctx context.Context) {
 	m.op.Lock()
-	err := m.withLock(ctx, func() error { return m.recoverApply(ctx) })
+	err := m.withLock(ctx, func() error {
+		if err := m.migrateOwner(ctx); err != nil {
+			return nil
+		}
+		return m.recoverApply(ctx)
+	})
 	m.op.Unlock()
 	m.setError(err)
 	close(m.ready)
@@ -227,6 +244,10 @@ func (m *Manager) Run(ctx context.Context) {
 			return
 		case job := <-m.queue:
 			if a, ok := job.(proto.CoreLogsReq); ok {
+				if err := m.verifyOwned(); err != nil {
+					m.emitState(ctx, a.ReqID, err)
+					continue
+				}
 				txt, err := Tail(m.paths.Log, a.Lines)
 				if err != nil {
 					m.emitState(ctx, a.ReqID, err)
@@ -276,6 +297,9 @@ func (m *Manager) monitor(ctx context.Context) {
 			}
 			last = st
 		case <-stats.C:
+			if m.verifyOwned() != nil {
+				continue
+			}
 			if m.connected != nil && !m.connected() {
 				continue
 			}

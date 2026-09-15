@@ -10,6 +10,9 @@ import (
 )
 
 func (m *Manager) firewall(ctx context.Context, ports []string) (string, error) {
+	if err := m.verifyOwned(); err != nil {
+		return "none", err
+	}
 	out, err := m.command(ctx, "ufw", "status")
 	if err == nil && strings.Contains(out, "Status: active") {
 		for _, p := range ports {

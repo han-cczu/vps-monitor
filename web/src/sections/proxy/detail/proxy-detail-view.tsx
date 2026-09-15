@@ -9,6 +9,7 @@ import { paths } from 'src/routes/paths';
 
 import { useServers } from 'src/api/servers';
 import { DashboardContent } from 'src/layouts/dashboard';
+import { useProxyObservations } from 'src/api/proxy-observation';
 import { useCore, useCert, useInbounds, useProxyAssignments } from 'src/api/proxy';
 
 import { CustomBreadcrumbs } from 'src/components/custom-breadcrumbs';
@@ -22,11 +23,15 @@ import { AdvancedJSON } from './advanced-json';
 import { FirewallPorts } from './firewall-ports';
 import { CoreStatusCard } from './core-status-card';
 import { RevisionsDialog } from './revisions-dialog';
+import { ObservedInstances } from './observed-instances';
 import { NodeSubscriberTraffic } from './subscriber-traffic';
+import { canEditManagedProxy } from '../observation-helpers';
 
 export function ProxyDetailView({ serverId }: { serverId: number }) {
   const { servers } = useServers();
   const core = useCore(serverId);
+  const observations = useProxyObservations(serverId);
+  const managed = canEditManagedProxy(observations.data);
   const inbounds = useInbounds(serverId);
   const cert = useCert(serverId);
   const assignments = useProxyAssignments();
@@ -48,6 +53,17 @@ export function ProxyDetailView({ serverId }: { serverId: number }) {
         sx={{ mb: 3 }}
       />
       {core.isLoading && <LinearProgress sx={{ mb: 3 }} />}
+      {observations.isLoading && <LinearProgress aria-label="加载代理观测" sx={{ mb: 3 }} />}
+      {observations.error && (
+        <Alert
+          severity="error"
+          sx={{ mb: 2 }}
+          action={<Button onClick={() => observations.mutate()}>重试</Button>}
+        >
+          代理观测：{getErrorMessage(observations.error)}
+        </Alert>
+      )}
+      {observations.data && <ObservedInstances serverId={serverId} data={observations.data} />}
       {[
         { resource: core, name: '核心状态' },
         { resource: inbounds, name: '入站' },
@@ -66,45 +82,47 @@ export function ProxyDetailView({ serverId }: { serverId: number }) {
             </Alert>
           )
       )}
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(320px, 2fr) minmax(0, 3fr)' },
-          gap: 3,
-          alignItems: 'start',
-        }}
-      >
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-          {core.core && (
-            <CoreStatusCard
-              core={core.core}
-              onRefresh={async () => {
-                await Promise.allSettled([core.mutate()]);
-              }}
-              onLogs={() => setDialog('logs')}
-              onRevisions={() => setDialog('revisions')}
-            />
-          )}
-          {inbounds.data && (
-            <FirewallPorts inbounds={inbounds.data.inbounds} firewall={core.core?.firewall} />
-          )}
-          {cert.data && <CertCard serverId={serverId} cert={cert.data.cert} onSaved={refresh} />}
+      {managed && (
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(320px, 2fr) minmax(0, 3fr)' },
+            gap: 3,
+            alignItems: 'start',
+          }}
+        >
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+            {core.core && (
+              <CoreStatusCard
+                core={core.core}
+                onRefresh={async () => {
+                  await Promise.allSettled([core.mutate()]);
+                }}
+                onLogs={() => setDialog('logs')}
+                onRevisions={() => setDialog('revisions')}
+              />
+            )}
+            {inbounds.data && (
+              <FirewallPorts inbounds={inbounds.data.inbounds} firewall={core.core?.firewall} />
+            )}
+            {cert.data && <CertCard serverId={serverId} cert={cert.data.cert} onSaved={refresh} />}
+          </Box>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+            {inbounds.isLoading && <LinearProgress aria-label="加载入站" />}
+            {inbounds.data && (
+              <InboundList
+                serverId={serverId}
+                inbounds={inbounds.data.inbounds}
+                core={core.core}
+                subscribers={assignments.data?.subscribers}
+                onSaved={refresh}
+              />
+            )}
+            <AdvancedJSON serverId={serverId} />
+            <NodeSubscriberTraffic serverId={serverId} />
+          </Box>
         </Box>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-          {inbounds.isLoading && <LinearProgress aria-label="加载入站" />}
-          {inbounds.data && (
-            <InboundList
-              serverId={serverId}
-              inbounds={inbounds.data.inbounds}
-              core={core.core}
-              subscribers={assignments.data?.subscribers}
-              onSaved={refresh}
-            />
-          )}
-          <AdvancedJSON serverId={serverId} />
-          <NodeSubscriberTraffic serverId={serverId} />
-        </Box>
-      </Box>
+      )}
       {dialog === 'logs' && (
         <LogDrawer
           serverId={serverId}

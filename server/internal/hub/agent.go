@@ -2,6 +2,8 @@ package hub
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -68,21 +70,24 @@ type AgentHub struct {
 	// onPing 由 ping 服务在装配时挂上；没挂时 ping 消息只记一条 WARN
 	onPing func(serverID int64, raw []byte)
 	// buildConfig 决定连上时下发什么 config；没设时只下发上报间隔
-	buildConfig func(serverID int64) any
-	onCore      func(context.Context, int64, []byte)
-	onHello     func(int64)
+	buildConfig   func(serverID int64) any
+	onCore        func(context.Context, int64, []byte)
+	onHello       func(int64)
+	onObservation func(context.Context, int64, string, []byte)
 }
 
 // agentConn 是一条 agent 连接。写统一走 send 通道，由 writeLoop 串行发出，
 // 这样任意协程都能安全地 SendTo，不必和读循环抢 conn。
 type agentConn struct {
-	serverID  int64
-	conn      *websocket.Conn
-	send      chan []byte
-	cancel    context.CancelFunc
-	closed    chan struct{}
-	once      sync.Once
-	helloSeen bool // protected by AgentHub.mu; periodic hello is not a reconnect
+	serverID        int64
+	conn            *websocket.Conn
+	send            chan []byte
+	cancel          context.CancelFunc
+	closed          chan struct{}
+	once            sync.Once
+	helloSeen       bool // protected by AgentHub.mu; periodic hello is not a reconnect
+	proxySession    string
+	proxyManagement string
 }
 
 // NewAgentHub 新建 agent 接入层。
@@ -115,6 +120,33 @@ func (h *AgentHub) OnCore(fn func(context.Context, int64, []byte), hello func(in
 	defer h.hookMu.Unlock()
 	h.onCore = fn
 	h.onHello = hello
+}
+
+func (h *AgentHub) OnObservation(fn func(context.Context, int64, string, []byte)) {
+	h.hookMu.Lock()
+	h.onObservation = fn
+	h.hookMu.Unlock()
+}
+
+// Unknown/legacy Agents must upgrade before any managed-core writes are sent.
+func (h *AgentHub) ProxyManagement(id int64) string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if ac := h.conns[id]; ac != nil && ac.proxySession != "" && ac.proxyManagement != "" {
+		return ac.proxyManagement
+	}
+	return "unknown"
+}
+func (h *AgentHub) CanManageProxy(id int64, install bool) bool {
+	mode := h.ProxyManagement(id)
+	return mode == "managed" || install && mode == "none"
+}
+
+func (h *AgentHub) ProxyObserveSupported(id int64) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	ac := h.conns[id]
+	return ac != nil && ac.proxySession != ""
 }
 
 // SetConfigBuilder 设置「agent 连上时下发什么 config」。
@@ -223,7 +255,23 @@ func (h *AgentHub) dispatch(ctx context.Context, serverID int64, raw []byte) {
 		h.handleHello(ctx, serverID, raw)
 	case proto.TypeMetrics:
 		h.handleMetrics(serverID, raw)
+	case proto.TypeProxyObservation:
+		h.mu.Lock()
+		session := ""
+		if ac := h.conns[serverID]; ac != nil {
+			session = ac.proxySession
+		}
+		h.mu.Unlock()
+		h.hookMu.RLock()
+		handler := h.onObservation
+		h.hookMu.RUnlock()
+		if session != "" && handler != nil {
+			handler(ctx, serverID, session, raw)
+		}
 	case proto.TypeCoreState, proto.TypeCoreStats, proto.TypeCoreLogs:
+		if env.Type != proto.TypeCoreState && !h.CanManageProxy(serverID, false) {
+			return
+		}
 		h.hookMu.RLock()
 		handler := h.onCore
 		h.hookMu.RUnlock()
@@ -262,6 +310,37 @@ func (h *AgentHub) handleHello(ctx context.Context, serverID int64, raw []byte) 
 	if hello.ProtoVersion != proto.Version {
 		slog.Warn("agent 协议版本不一致",
 			"server_id", serverID, "agent", hello.ProtoVersion, "server", proto.Version)
+	}
+	capable := false
+	if hello.ProtoVersion == proto.Version && len(hello.Capabilities) <= 16 {
+		for _, cap := range hello.Capabilities {
+			if cap == proto.ProxyObserveCapability {
+				capable = true
+			}
+		}
+	}
+	h.mu.Lock()
+	negotiated := false
+	if ac := h.conns[serverID]; ac != nil {
+		ac.proxyManagement = "unknown"
+		if capable {
+			if hello.ProxyManagement == "managed" || hello.ProxyManagement == "external" || hello.ProxyManagement == "none" {
+				ac.proxyManagement = hello.ProxyManagement
+			}
+			if ac.proxySession == "" {
+				var nonce [16]byte
+				if _, err := rand.Read(nonce[:]); err == nil {
+					ac.proxySession = hex.EncodeToString(nonce[:])
+					negotiated = true
+				}
+			}
+		} else {
+			ac.proxySession = ""
+		}
+	}
+	h.mu.Unlock()
+	if negotiated {
+		h.SendTo(serverID, h.configFor(serverID))
 	}
 
 	var publicIP string
@@ -408,16 +487,49 @@ func (h *AgentHub) detach(ac *agentConn) {
 func (h *AgentHub) SendTo(serverID int64, v any) bool {
 	h.mu.Lock()
 	ac := h.conns[serverID]
+	mode := "unknown"
+	session := ""
+	if ac != nil {
+		mode = ac.proxyManagement
+		session = ac.proxySession
+	}
 	h.mu.Unlock()
 
 	if ac == nil {
 		return false
 	}
 
+	// Every config update retains the negotiated session (including ping edits).
+	switch cfg := v.(type) {
+	case proto.Config:
+		cfg.ProxyObserveSession = session
+		v = cfg
+	case *proto.Config:
+		cp := *cfg
+		cp.ProxyObserveSession = session
+		v = cp
+	}
 	data, err := json.Marshal(v)
 	if err != nil {
 		slog.Error("下发消息序列化失败", "server_id", serverID, "err", err)
 		return false
+	}
+	var command struct {
+		Type   string `json:"type"`
+		Action string `json:"action"`
+	}
+	if json.Unmarshal(data, &command) != nil {
+		return false
+	}
+	switch command.Type {
+	case proto.TypeCoreAction, proto.TypeCoreApply, proto.TypeCoreLogs:
+		if session == "" || mode != "managed" && !(mode == "none" && command.Type == proto.TypeCoreAction && command.Action == "install") {
+			return false
+		}
+	case proto.TypeProxyRefresh:
+		if session == "" {
+			return false
+		}
 	}
 
 	select {

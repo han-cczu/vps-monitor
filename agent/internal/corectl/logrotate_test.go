@@ -9,7 +9,11 @@ import (
 )
 
 func TestLogrotateConfigWritten(t *testing.T) {
-	m := &Manager{paths: Paths{Logrotate: filepath.Join(t.TempDir(), "logrotate", "sing-box")}}
+	m, _ := fixture(t)
+	m.paths.Logrotate = filepath.Join(t.TempDir(), "logrotate", "sing-box")
+	if err := m.createOwner(); err != nil {
+		t.Fatal(err)
+	}
 	if err := m.installLogrotate(); err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +36,11 @@ func TestFallbackTruncatesOnlyOversizedRegularLog(t *testing.T) {
 	if err := os.WriteFile(path, []byte("small"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	m := &Manager{paths: Paths{Log: path}}
+	m, _ := fixture(t)
+	m.paths.Log = path
+	if err := m.createOwner(); err != nil {
+		t.Fatal(err)
+	}
 	if err := m.maintainLog(); err != nil {
 		t.Fatal(err)
 	}
@@ -51,6 +59,9 @@ func TestFallbackTruncatesOnlyOversizedRegularLog(t *testing.T) {
 		t.Fatal("oversized log retained")
 	}
 	m.paths.Log = filepath.Dir(path)
+	if err := m.createOwner(); err != nil {
+		t.Fatal(err)
+	}
 	if err := m.maintainLog(); err == nil {
 		t.Fatal("directory accepted")
 	}

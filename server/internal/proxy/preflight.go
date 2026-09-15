@@ -58,6 +58,9 @@ func (s *Service) CheckAdvanced(ctx context.Context, id int64, raw json.RawMessa
 	return err
 }
 func (s *Service) SaveAdvancedChecked(ctx context.Context, id int64, raw json.RawMessage, checker AdvancedChecker) (*store.Advanced, error) {
+	if err := s.guard(id); err != nil {
+		return nil, err
+	}
 	data, err := s.advancedSnapshot(ctx, id)
 	if err != nil {
 		return nil, err
