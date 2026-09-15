@@ -64,7 +64,7 @@ func (a *Accountant) calibrationSnapshot(id int64, s store.Server) CalibrationSn
 	return CalibrationSnapshot{
 		TrafficPeriod: p, Mode: s.TrafficMode, ResetDay: s.TrafficResetDay,
 		Limit: s.TrafficLimit, Used: Used(p, s.TrafficMode),
-		PeriodEndExpected: NextBoundary(time.Unix(p.Start, 0).In(a.now().Location()), s.TrafficResetDay).Unix(),
+		PeriodEndExpected: periodBoundary(p, s, a.now().Location()).Unix(),
 		SampleReceivedAt:  at, Ready: !received.IsZero() && age >= 0 && age <= 2*time.Minute,
 	}
 }
@@ -107,7 +107,7 @@ func (a *Accountant) Calibrate(ctx context.Context, id int64, input CalibrationI
 	a.dirty = true
 	after := a.calibrationSnapshot(id, s)
 	entry := audit.Entry(ctx, "server.traffic.calibrate", "server", strconv.FormatInt(id, 10), before, after)
-	err = a.flush(ctx, "", store.TrafficCalibrationCommit{ServerID: id, Mode: s.TrafficMode, ResetDay: s.TrafficResetDay, Audit: entry})
+	err = a.flush(ctx, "", store.TrafficCalibrationCommit{ServerID: id, Mode: s.TrafficMode, ResetDay: s.TrafficResetDay, ResetMode: s.TrafficResetMode, Audit: entry})
 	if err != nil {
 		// Keep all pending samples and rollover work; undo only this adjustment.
 		a.periods[id] = before.TrafficPeriod

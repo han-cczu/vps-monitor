@@ -12,51 +12,54 @@ import (
 //
 // TokenHash 是 agent token 的 sha256 hex，明文只在创建与重置时返回一次，库里不存。
 type Server struct {
-	ID              int64
-	Name            string
-	Region          string // ISO 3166-1 alpha-2，空表示未填
-	GroupName       string
-	Tags            []string
-	SortOrder       int64
-	TokenHash       string
-	PublicHost      string
-	Price           float64
-	Currency        string
-	BillingCycle    string  // month | quarter | year | once
-	ExpireAt        *string // YYYY-MM-DD，nil 表示不设到期
-	AutoRenew       bool
-	TrafficLimit    int64 // 字节，0 = 不限
-	TrafficResetDay int
-	TrafficMode     string // out | in | sum | max
-	BandwidthLabel  string
-	Note            string
-	CreatedAt       int64 // Unix 秒
-	UpdatedAt       int64
+	ID               int64
+	Name             string
+	Region           string // ISO 3166-1 alpha-2，空表示未填
+	GroupName        string
+	Tags             []string
+	SortOrder        int64
+	TokenHash        string
+	PublicHost       string
+	Price            float64
+	Currency         string
+	BillingCycle     string  // month | quarter | year | once
+	ExpireAt         *string // YYYY-MM-DD，nil 表示不设到期
+	AutoRenew        bool
+	TrafficLimit     int64 // 字节，0 = 不限
+	TrafficResetDay  int
+	TrafficResetMode string // monthly | days (30 calendar days)
+	TrafficMode      string // out | in | sum | max
+	BandwidthLabel   string
+	Note             string
+	CreatedAt        int64 // Unix 秒
+	UpdatedAt        int64
 }
 
 // ServerInput 是创建 / 更新节点时的可写字段。token 与时间戳不在其中，由 store 自己管。
 type ServerInput struct {
-	Name            string
-	Region          string
-	GroupName       string
-	Tags            []string
-	SortOrder       int64
-	PublicHost      string
-	Price           float64
-	Currency        string
-	BillingCycle    string
-	ExpireAt        *string
-	AutoRenew       bool
-	TrafficLimit    int64
-	TrafficResetDay int
-	TrafficMode     string
-	BandwidthLabel  string
-	Note            string
+	Name             string
+	Region           string
+	GroupName        string
+	Tags             []string
+	SortOrder        int64
+	PublicHost       string
+	Price            float64
+	Currency         string
+	BillingCycle     string
+	ExpireAt         *string
+	AutoRenew        bool
+	TrafficLimit     int64
+	TrafficResetDay  int
+	TrafficResetMode string
+	TrafficPeriod    *TrafficPeriod // initial period, only used on creation
+	TrafficMode      string
+	BandwidthLabel   string
+	Note             string
 }
 
 const serverColumns = `id, name, region, group_name, tags, sort_order, token_hash, public_host,
 	price, currency, billing_cycle, expire_at, auto_renew,
-	traffic_limit, traffic_reset_day, traffic_mode, bandwidth_label, note, created_at, updated_at`
+	traffic_limit, traffic_reset_day, traffic_mode, bandwidth_label, note, created_at, updated_at, traffic_reset_mode`
 
 func scanServer(row scanner) (*Server, error) {
 	var (
@@ -67,7 +70,7 @@ func scanServer(row scanner) (*Server, error) {
 	)
 	err := row.Scan(&s.ID, &s.Name, &s.Region, &s.GroupName, &tagsJSON, &s.SortOrder, &s.TokenHash, &s.PublicHost,
 		&s.Price, &s.Currency, &s.BillingCycle, &expireAt, &autoRenew,
-		&s.TrafficLimit, &s.TrafficResetDay, &s.TrafficMode, &s.BandwidthLabel, &s.Note, &s.CreatedAt, &s.UpdatedAt)
+		&s.TrafficLimit, &s.TrafficResetDay, &s.TrafficMode, &s.BandwidthLabel, &s.Note, &s.CreatedAt, &s.UpdatedAt, &s.TrafficResetMode)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -139,19 +142,29 @@ func (db *DB) FindServerByTokenHash(ctx context.Context, tokenHash string) (*Ser
 // CreateServer 新建节点。tokenHash 必须已经是哈希值，调用方负责生成明文 token。
 func (db *DB) CreateServer(ctx context.Context, in ServerInput, tokenHash string) (*Server, error) {
 	now := time.Now().Unix()
-	res, err := db.ExecContext(ctx,
-		`INSERT INTO servers (name, region, group_name, tags, sort_order, token_hash, public_host,
+	var id int64
+	err := db.WithTx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			`INSERT INTO servers (name, region, group_name, tags, sort_order, token_hash, public_host,
 			price, currency, billing_cycle, expire_at, auto_renew,
-			traffic_limit, traffic_reset_day, traffic_mode, bandwidth_label, note, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		in.Name, in.Region, in.GroupName, encodeTags(in.Tags), in.SortOrder, tokenHash, in.PublicHost,
-		in.Price, in.Currency, in.BillingCycle, expireAtArg(in.ExpireAt), boolToInt(in.AutoRenew),
-		in.TrafficLimit, in.TrafficResetDay, in.TrafficMode, in.BandwidthLabel, in.Note, now, now,
-	)
-	if err != nil {
-		return nil, err
-	}
-	id, err := res.LastInsertId()
+			traffic_limit, traffic_reset_day, traffic_mode, bandwidth_label, note, created_at, updated_at, traffic_reset_mode)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			in.Name, in.Region, in.GroupName, encodeTags(in.Tags), in.SortOrder, tokenHash, in.PublicHost,
+			in.Price, in.Currency, in.BillingCycle, expireAtArg(in.ExpireAt), boolToInt(in.AutoRenew),
+			in.TrafficLimit, in.TrafficResetDay, in.TrafficMode, in.BandwidthLabel, in.Note, now, now, resetModeArg(in.TrafficResetMode),
+		)
+		if err != nil {
+			return err
+		}
+		id, err = res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		if p := in.TrafficPeriod; p != nil {
+			_, err = tx.ExecContext(ctx, `INSERT INTO traffic_periods(server_id,period_start,next_reset) VALUES(?,?,?)`, id, p.Start, p.NextReset)
+		}
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -160,27 +173,47 @@ func (db *DB) CreateServer(ctx context.Context, in ServerInput, tokenHash string
 }
 
 // UpdateServer 覆盖节点的可写字段，返回更新后的行；节点不存在返回 ErrNotFound。
-func (db *DB) UpdateServer(ctx context.Context, id int64, in ServerInput) (*Server, error) {
-	res, err := db.ExecContext(ctx,
-		`UPDATE servers SET name = ?, region = ?, group_name = ?, tags = ?, sort_order = ?, public_host = ?,
+func (db *DB) UpdateServer(ctx context.Context, id int64, in ServerInput, periodChanges ...TrafficPeriodChange) (*Server, error) {
+	var updated *Server
+	err := db.WithTx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			`UPDATE servers SET name = ?, region = ?, group_name = ?, tags = ?, sort_order = ?, public_host = ?,
 			price = ?, currency = ?, billing_cycle = ?, expire_at = ?, auto_renew = ?,
-			traffic_limit = ?, traffic_reset_day = ?, traffic_mode = ?, bandwidth_label = ?, note = ?, updated_at = ?
+			traffic_limit = ?, traffic_reset_day = ?, traffic_mode = ?, bandwidth_label = ?, note = ?, updated_at = ?, traffic_reset_mode = ?
 		 WHERE id = ?`,
-		in.Name, in.Region, in.GroupName, encodeTags(in.Tags), in.SortOrder, in.PublicHost,
-		in.Price, in.Currency, in.BillingCycle, expireAtArg(in.ExpireAt), boolToInt(in.AutoRenew),
-		in.TrafficLimit, in.TrafficResetDay, in.TrafficMode, in.BandwidthLabel, in.Note, time.Now().Unix(),
-		id,
-	)
+			in.Name, in.Region, in.GroupName, encodeTags(in.Tags), in.SortOrder, in.PublicHost,
+			in.Price, in.Currency, in.BillingCycle, expireAtArg(in.ExpireAt), boolToInt(in.AutoRenew),
+			in.TrafficLimit, in.TrafficResetDay, in.TrafficMode, in.BandwidthLabel, in.Note, time.Now().Unix(), resetModeArg(in.TrafficResetMode),
+			id,
+		)
+		if err != nil {
+			return err
+		}
+		if n, err := res.RowsAffected(); err != nil {
+			return err
+		} else if n == 0 {
+			return ErrNotFound
+		}
+		for _, change := range periodChanges {
+			if err := changeTrafficPeriod(ctx, tx, id, change); err != nil {
+				return err
+			}
+		}
+		updated, err = scanServer(tx.QueryRowContext(ctx, "SELECT "+serverColumns+" FROM servers WHERE id=?", id))
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
-	if n, err := res.RowsAffected(); err != nil {
-		return nil, err
-	} else if n == 0 {
-		return nil, ErrNotFound
-	}
 	db.InvalidateSubscriptions()
-	return db.GetServer(ctx, id)
+	return updated, nil
+}
+
+func resetModeArg(mode string) string {
+	if mode == "" {
+		return "monthly"
+	}
+	return mode
 }
 
 // UpdateServerTokenHash 替换 agent token 的哈希（重置 token），节点不存在返回 ErrNotFound。

@@ -4,7 +4,9 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
+	"vpsmon/server/internal/clock"
 	"vpsmon/server/internal/store"
 	"vpsmon/server/internal/traffic"
 )
@@ -110,6 +112,12 @@ func (d *Deps) trafficHistory(w http.ResponseWriter, r *http.Request) {
 
 func (d *Deps) withTraffic(dto serverDTO) serverDTO {
 	if d.Traffic != nil {
+		if p, ok := d.Traffic.PeriodFor(dto.ID); ok {
+			dto.TrafficPeriodStart = time.Unix(p.Start, 0).In(clock.Location()).Format(time.DateOnly)
+			dto.TrafficNextReset = time.Unix(p.NextReset, 0).In(clock.Location()).Format(time.DateOnly)
+			dto.TrafficExpectedStart = p.Start
+			dto.TrafficPeriodRevision = p.CalibrationRevision
+		}
 		if t := d.Traffic.SnapshotFor(dto.ID); t != nil {
 			dto.TrafficUsed = t.Used
 		}

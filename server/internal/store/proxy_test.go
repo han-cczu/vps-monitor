@@ -29,7 +29,10 @@ func TestProxyMigrationUpgradeRollbackAndReplay(t *testing.T) {
 	if _, err = provider.UpTo(ctx, 4); err != nil {
 		t.Fatal(err)
 	}
-	node, err := db.CreateServer(ctx, ServerInput{Name: "pre-proxy-node"}, "existing-token")
+	// Seed the old schema directly; current repository methods require the
+	// latest columns and must not be used before migration or after rollback.
+	_, err = db.ExecContext(ctx, `INSERT INTO servers(id,name,token_hash,created_at,updated_at) VALUES(1,'pre-proxy-node','existing-token',1,1)`)
+	node := Server{ID: 1}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +53,8 @@ func TestProxyMigrationUpgradeRollbackAndReplay(t *testing.T) {
 	if _, err = provider.DownTo(ctx, 4); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.GetServer(ctx, node.ID); err != nil {
+	var name string
+	if err = db.QueryRowContext(ctx, `SELECT name FROM servers WHERE id=?`, node.ID).Scan(&name); err != nil || name != "pre-proxy-node" {
 		t.Fatal("proxy rollback removed node")
 	}
 	if err = db.Migrate(ctx); err != nil {

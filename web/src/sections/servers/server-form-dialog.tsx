@@ -18,6 +18,9 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import InputAdornment from '@mui/material/InputAdornment';
 
+import { formatPanelDate } from 'src/utils/format';
+import { nextTrafficReset } from 'src/utils/traffic-schedule';
+
 import { createServer, updateServer } from 'src/api/servers';
 import {
   REGION_LABELS,
@@ -37,50 +40,75 @@ import { joinTraffic, splitTraffic, TRAFFIC_UNITS } from './utils';
 // ----------------------------------------------------------------------
 
 // 与服务端 servers_input.go 的规则保持一致，改一边记得改另一边
-const ServerSchema = z.object({
-  name: z
-    .string()
-    .trim()
-    .min(1, { error: '请填写节点名称' })
-    .max(64, { error: '节点名称最多 64 个字符' }),
-  region: z
-    .string()
-    .trim()
-    .regex(/^[A-Za-z]{2}$|^$/, { error: '地区需要是两位国家码，如 HK、JP、US' }),
-  group_name: z.string().trim().max(32, { error: '分组名最多 32 个字符' }),
-  tags: z.array(z.string().trim().max(16, { error: '单个标签最多 16 个字符' })).max(10, {
-    error: '标签最多 10 个',
-  }),
-  sort_order: z.coerce
-    .number({ error: '排序值需要是数字' })
-    .int({ error: '排序值需要是整数' })
-    .min(-1_000_000, { error: '排序值超出范围' })
-    .max(1_000_000, { error: '排序值超出范围' }),
-  public_host: z
-    .string()
-    .trim()
-    .max(253, { error: '公网地址过长' })
-    .refine((val) => val === '' || /^[A-Za-z0-9.:_-]+$/.test(val), {
-      error: '公网地址需要是域名或 IP，不带协议和端口',
+const ServerSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(1, { error: '请填写节点名称' })
+      .max(64, { error: '节点名称最多 64 个字符' }),
+    region: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z]{2}$|^$/, { error: '地区需要是两位国家码，如 HK、JP、US' }),
+    group_name: z.string().trim().max(32, { error: '分组名最多 32 个字符' }),
+    tags: z.array(z.string().trim().max(16, { error: '单个标签最多 16 个字符' })).max(10, {
+      error: '标签最多 10 个',
     }),
-  price: z.coerce
-    .number({ error: '价格需要是数字' })
-    .min(0, { error: '价格不能为负' })
-    .max(1e9, { error: '价格过大' }),
-  currency: z.string().trim().length(3, { error: '货币需要是三位代码' }),
-  billing_cycle: z.enum(['month', 'quarter', 'year', 'once']),
-  expire_at: z.string().nullable(),
-  auto_renew: z.boolean(),
-  traffic_limit_value: z.coerce
-    .number({ error: '流量上限需要是数字' })
-    .min(0, { error: '流量上限不能为负' })
-    .max(1e6, { error: '流量上限过大' }),
-  traffic_limit_unit: z.enum(['GB', 'TB']),
-  traffic_reset_day: z.coerce.number().int().min(1).max(31),
-  traffic_mode: z.enum(['out', 'in', 'sum', 'max']),
-  bandwidth_label: z.string().trim().max(32, { error: '带宽标签最多 32 个字符' }),
-  note: z.string().trim().max(500, { error: '备注最多 500 个字符' }),
-});
+    sort_order: z.coerce
+      .number({ error: '排序值需要是数字' })
+      .int({ error: '排序值需要是整数' })
+      .min(-1_000_000, { error: '排序值超出范围' })
+      .max(1_000_000, { error: '排序值超出范围' }),
+    public_host: z
+      .string()
+      .trim()
+      .max(253, { error: '公网地址过长' })
+      .refine((val) => val === '' || /^[A-Za-z0-9.:_-]+$/.test(val), {
+        error: '公网地址需要是域名或 IP，不带协议和端口',
+      }),
+    price: z.coerce
+      .number({ error: '价格需要是数字' })
+      .min(0, { error: '价格不能为负' })
+      .max(1e9, { error: '价格过大' }),
+    currency: z.string().trim().length(3, { error: '货币需要是三位代码' }),
+    billing_cycle: z.enum(['month', 'quarter', 'year', 'once']),
+    expire_at: z.string().nullable(),
+    auto_renew: z.boolean(),
+    traffic_limit_value: z.coerce
+      .number({ error: '流量上限需要是数字' })
+      .min(0, { error: '流量上限不能为负' })
+      .max(1e6, { error: '流量上限过大' }),
+    traffic_limit_unit: z.enum(['GB', 'TB']),
+    traffic_reset_day: z.coerce.number().int().min(1).max(31),
+    traffic_reset_mode: z.enum(['days', 'monthly']),
+    traffic_period_start: z.string().min(1, { error: '请填写本期流量开始日期' }),
+    traffic_next_reset: z.string().min(1, { error: '请填写下次重置日期' }),
+    traffic_mode: z.enum(['out', 'in', 'sum', 'max']),
+    bandwidth_label: z.string().trim().max(32, { error: '带宽标签最多 32 个字符' }),
+    note: z.string().trim().max(500, { error: '备注最多 500 个字符' }),
+  })
+  .superRefine((values, ctx) => {
+    const today = formatPanelDate(Date.now() / 1000).replaceAll('/', '-');
+    if (!dayjs(values.traffic_period_start).isValid() || values.traffic_period_start > today) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['traffic_period_start'],
+        message: '本期开始日期需要是今天或之前的有效日期',
+      });
+    }
+    if (
+      !dayjs(values.traffic_next_reset).isValid() ||
+      values.traffic_next_reset <= today ||
+      values.traffic_next_reset <= values.traffic_period_start
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['traffic_next_reset'],
+        message: '下次重置日期必须晚于今天及本期开始日期',
+      });
+    }
+  });
 
 // coerce 的 input 是 unknown（数字输入框在敲的过程中是字符串），output 才是 number，
 // 所以 useForm 用三个泛型：表单里存 input，提交回调拿 output。
@@ -106,6 +134,9 @@ const FIELD_TABS: Record<string, TabValue> = {
   traffic_limit_value: 'plan',
   traffic_limit_unit: 'plan',
   traffic_reset_day: 'plan',
+  traffic_reset_mode: 'plan',
+  traffic_period_start: 'plan',
+  traffic_next_reset: 'plan',
   traffic_mode: 'plan',
   bandwidth_label: 'plan',
 };
@@ -114,11 +145,15 @@ const TABS: { value: TabValue; label: string }[] = [
   { value: 'basic', label: '基础' },
   { value: 'access', label: '接入' },
   { value: 'billing', label: '账单' },
-  { value: 'plan', label: '套餐' },
+  { value: 'plan', label: '流量套餐' },
 ];
 
 function toFormValues(server?: ServerItem | null): ServerFormInput {
   const traffic = splitTraffic(server?.traffic_limit ?? 0);
+  const start =
+    server?.traffic_period_start || formatPanelDate(Date.now() / 1000).replaceAll('/', '-');
+  const mode = server?.traffic_reset_mode ?? 'days';
+  const resetDay = server?.traffic_reset_day ?? Number(start.slice(-2));
 
   return {
     name: server?.name ?? '',
@@ -134,7 +169,10 @@ function toFormValues(server?: ServerItem | null): ServerFormInput {
     auto_renew: server?.auto_renew ?? false,
     traffic_limit_value: traffic.value,
     traffic_limit_unit: traffic.unit,
-    traffic_reset_day: server?.traffic_reset_day ?? 1,
+    traffic_reset_day: resetDay,
+    traffic_reset_mode: mode,
+    traffic_period_start: start,
+    traffic_next_reset: server?.traffic_next_reset || nextTrafficReset(start, mode, resetDay),
     traffic_mode: server?.traffic_mode ?? 'max',
     bandwidth_label: server?.bandwidth_label ?? '',
     note: server?.note ?? '',
@@ -156,6 +194,7 @@ function toPayload(values: ServerFormValues): ServerPayload {
     auto_renew: values.auto_renew,
     traffic_limit: joinTraffic(values.traffic_limit_value, values.traffic_limit_unit),
     traffic_reset_day: values.traffic_reset_day,
+    traffic_reset_mode: values.traffic_reset_mode,
     traffic_mode: values.traffic_mode,
     bandwidth_label: values.bandwidth_label,
     note: values.note,
@@ -172,8 +211,9 @@ type Props = {
   /** 新建成功：外层拿 token 弹「只显示一次」的对话框 */
   onCreated: (result: ServerCreateResult) => void;
   onUpdated: () => void;
+  initialTab?: TabValue;
   /** 编辑态里点「重置 token」 */
-  onResetToken: (server: ServerItem) => void;
+  onResetToken?: (server: ServerItem) => void;
 };
 
 export function ServerFormDialog({
@@ -183,9 +223,11 @@ export function ServerFormDialog({
   onCreated,
   onUpdated,
   onResetToken,
+  initialTab = 'basic',
 }: Props) {
   const isEdit = !!currentServer;
   const [tab, setTab] = useState<TabValue>('basic');
+  const [manualNextReset, setManualNextReset] = useState(false);
 
   const methods = useForm<ServerFormInput, unknown, ServerFormValues>({
     mode: 'onSubmit',
@@ -203,14 +245,56 @@ export function ServerFormDialog({
   useEffect(() => {
     if (open) {
       reset(toFormValues(currentServer));
-      setTab('basic');
+      setTab(initialTab);
+      setManualNextReset(false);
     }
-  }, [open, currentServer, reset]);
+  }, [open, currentServer, reset, initialTab]);
+
+  const changeSchedule = (
+    field: 'traffic_period_start' | 'traffic_reset_mode' | 'traffic_reset_day',
+    value: string | number
+  ) => {
+    const previousMode = methods.getValues('traffic_reset_mode');
+    methods.setValue(field, value, { shouldDirty: true });
+    if (
+      previousMode === 'days' &&
+      (field === 'traffic_period_start' || field === 'traffic_reset_mode')
+    ) {
+      const startDay = Number(methods.getValues('traffic_period_start').slice(-2));
+      if (startDay >= 1 && startDay <= 31)
+        methods.setValue('traffic_reset_day', startDay, { shouldDirty: true });
+    }
+    if (!manualNextReset) {
+      methods.setValue(
+        'traffic_next_reset',
+        nextTrafficReset(
+          methods.getValues('traffic_period_start'),
+          methods.getValues('traffic_reset_mode'),
+          Number(methods.getValues('traffic_reset_day'))
+        ),
+        { shouldDirty: true }
+      );
+    }
+  };
 
   const onSubmit = handleSubmit(
     async (values) => {
       try {
         const payload = toPayload(values);
+        const scheduleChanged =
+          !currentServer ||
+          values.traffic_period_start !== currentServer.traffic_period_start ||
+          values.traffic_next_reset !== currentServer.traffic_next_reset ||
+          values.traffic_reset_mode !== currentServer.traffic_reset_mode ||
+          values.traffic_reset_day !== currentServer.traffic_reset_day;
+        if (scheduleChanged) {
+          payload.traffic_period_start = values.traffic_period_start;
+          payload.traffic_next_reset = values.traffic_next_reset;
+          if (currentServer) {
+            payload.traffic_expected_start = currentServer.traffic_expected_start;
+            payload.traffic_period_revision = currentServer.traffic_period_revision;
+          }
+        }
 
         if (currentServer) {
           await updateServer(currentServer.id, payload);
@@ -312,13 +396,15 @@ export function ServerFormDialog({
               <Alert
                 severity="info"
                 action={
-                  <Button
-                    color="warning"
-                    size="small"
-                    onClick={() => currentServer && onResetToken(currentServer)}
-                  >
-                    重置 token
-                  </Button>
+                  onResetToken && (
+                    <Button
+                      color="warning"
+                      size="small"
+                      onClick={() => currentServer && onResetToken(currentServer)}
+                    >
+                      重置 token
+                    </Button>
+                  )
                 }
               >
                 agent token 只在创建时显示一次。丢了就重置一个，重置后这台节点上的 agent 需要重装。
@@ -348,11 +434,18 @@ export function ServerFormDialog({
               ))}
             </Field.Select>
 
-            <Field.DatePicker name="expire_at" label="到期日" format="YYYY-MM-DD" />
+            <Field.DatePicker
+              name="expire_at"
+              label="套餐到期日"
+              format="YYYY-MM-DD"
+              slotProps={{
+                textField: { helperText: '填写 VPS 套餐的实际到期日，与流量重置时间独立。' },
+              }}
+            />
 
             <Field.Switch
               name="auto_renew"
-              label="到期自动顺延"
+              label="套餐到期自动顺延"
               helperText="到期后按所选周期顺延登记的到期日"
             />
           </TabPanel>
@@ -366,7 +459,7 @@ export function ServerFormDialog({
                 helperText="0 表示不限"
                 slotProps={{
                   input: {
-                    endAdornment: <InputAdornment position="end">/ 月</InputAdornment>,
+                    endAdornment: <InputAdornment position="end">/ 期</InputAdornment>,
                   },
                 }}
               />
@@ -379,13 +472,86 @@ export function ServerFormDialog({
               </Field.Select>
             </Box>
 
-            <Field.Select name="traffic_reset_day" label="每月重置日">
-              {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
-                <MenuItem key={day} value={day}>
-                  {day} 号
-                </MenuItem>
-              ))}
+            <Field.DatePicker
+              name="traffic_period_start"
+              label="本期流量开始日期"
+              format="YYYY-MM-DD"
+              onChange={(value) =>
+                changeSchedule(
+                  'traffic_period_start',
+                  value?.isValid() ? value.format('YYYY-MM-DD') : ''
+                )
+              }
+              slotProps={{
+                textField: {
+                  helperText: '按服务商的当前流量周期填写；修改日期会保留本期已统计用量。',
+                },
+              }}
+            />
+
+            <Field.Select
+              name="traffic_reset_mode"
+              label="流量重置周期"
+              onChange={(event) => changeSchedule('traffic_reset_mode', event.target.value)}
+            >
+              <MenuItem value="days">每 30 天</MenuItem>
+              <MenuItem value="monthly">每月指定日期</MenuItem>
             </Field.Select>
+
+            {methods.watch('traffic_reset_mode') === 'monthly' && (
+              <Field.Select
+                name="traffic_reset_day"
+                label="每月重置日"
+                helperText="当月没有指定日期时，使用当月最后一天。"
+                onChange={(event) =>
+                  changeSchedule('traffic_reset_day', Number(event.target.value))
+                }
+              >
+                {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
+                  <MenuItem key={day} value={day}>
+                    {day} 号
+                  </MenuItem>
+                ))}
+              </Field.Select>
+            )}
+
+            <Field.DatePicker
+              name="traffic_next_reset"
+              label="下次重置日期"
+              format="YYYY-MM-DD"
+              onChange={(value) => {
+                setManualNextReset(true);
+                methods.setValue(
+                  'traffic_next_reset',
+                  value?.isValid() ? value.format('YYYY-MM-DD') : '',
+                  { shouldDirty: true }
+                );
+              }}
+              slotProps={{
+                textField: {
+                  helperText:
+                    '默认按开始日期和重置周期计算，可手动调整本次日期；后续按所选周期重置。日期均按面板时区计算。',
+                },
+              }}
+            />
+            <Button
+              size="small"
+              sx={{ justifySelf: 'start' }}
+              onClick={() => {
+                setManualNextReset(false);
+                methods.setValue(
+                  'traffic_next_reset',
+                  nextTrafficReset(
+                    methods.getValues('traffic_period_start'),
+                    methods.getValues('traffic_reset_mode'),
+                    Number(methods.getValues('traffic_reset_day'))
+                  ),
+                  { shouldDirty: true }
+                );
+              }}
+            >
+              按规则重新计算下次日期
+            </Button>
 
             <Field.Select
               name="traffic_mode"
