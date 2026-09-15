@@ -30,6 +30,7 @@ import (
 	"vpsmon/server/internal/proxyobserve"
 	"vpsmon/server/internal/store"
 	"vpsmon/server/internal/traffic"
+	"vpsmon/server/internal/updates"
 )
 
 // maxConcurrentVerify 是同时进行的 argon2 校验数上限。
@@ -50,6 +51,7 @@ type Deps struct {
 	MFA              *auth.MFA
 	Limiter          *auth.Limiter
 	Version          string
+	Updates          *updates.Checker
 	Web              http.Handler // 内嵌前端（server/web.Handler()）
 	TrustedProxies   config.TrustedProxies
 	DataDir          string // VM_DATA_DIR：/install.sh 与 /agent/{file} 从 {DataDir}/agent/ 下发
@@ -77,6 +79,9 @@ type Deps struct {
 // NewRouter 构建根路由。
 func NewRouter(deps Deps) http.Handler {
 	d := &deps
+	if d.Updates == nil {
+		d.Updates, _ = updates.New("")
+	}
 	d.settingsMu = &sync.Mutex{}
 	if d.MFA == nil {
 		d.MFA = d.Tokens.NewMFA()
@@ -136,6 +141,8 @@ func NewRouter(deps Deps) http.Handler {
 			protected.Post("/auth/password", d.changePassword)
 
 			protected.Get("/agent-version", d.agentVersion)
+			protected.Get("/updates", d.getUpdates)
+			protected.Post("/updates/check", d.checkUpdates)
 			protected.Post("/servers/{id}/agent/update", d.updateAgent)
 			protected.Post("/servers/agent/update-all", d.updateAllAgents)
 			protected.Get("/servers", d.listServers)

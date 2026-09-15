@@ -10,6 +10,11 @@ import (
 	"vpsmon/proto"
 )
 
+// InstalledVersion reports custom/dev builds as well, without making them eligible for updates.
+func InstalledVersion(dir string) (string, error) {
+	return readVersion(dir)
+}
+
 func CurrentVersion(dir string) (string, error) {
 	v, err := readVersion(dir)
 	if err != nil {

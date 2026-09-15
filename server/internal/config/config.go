@@ -53,19 +53,21 @@ type Config struct {
 	// AgentDist 是镜像自带的 agent 产物目录（VM_AGENT_DIST，镜像里是 /app/agent-dist）。
 	// 启动时会把它同步到 {DataDir}/agent/ 供节点下载，这样「升级镜像 = 升级可下载的 agent」。
 	// 本地开发不设这个变量，同步就整个跳过。
-	AgentDist string
+	AgentDist        string
+	UpdateRepository string // VM_UPDATE_REPOSITORY，公开 GitHub owner/repo；空值使用项目仓库
 }
 
 // Load 从环境变量读取配置并做基本校验。
 func Load() (Config, error) {
 	cfg := Config{
-		Listen:    getenv("VM_LISTEN", ":9000"),
-		DataDir:   getenv("VM_DATA_DIR", "./data"),
-		PublicURL: strings.TrimRight(strings.TrimSpace(os.Getenv("VM_PUBLIC_URL")), "/"),
-		JWTSecret: strings.TrimSpace(os.Getenv("VM_JWT_SECRET")),
-		TZ:        getenv("VM_TZ", "Asia/Shanghai"),
-		LogLevel:  getenv("VM_LOG_LEVEL", "info"),
-		AgentDist: strings.TrimSpace(os.Getenv("VM_AGENT_DIST")),
+		Listen:           getenv("VM_LISTEN", ":9000"),
+		DataDir:          getenv("VM_DATA_DIR", "./data"),
+		PublicURL:        strings.TrimRight(strings.TrimSpace(os.Getenv("VM_PUBLIC_URL")), "/"),
+		JWTSecret:        strings.TrimSpace(os.Getenv("VM_JWT_SECRET")),
+		TZ:               getenv("VM_TZ", "Asia/Shanghai"),
+		LogLevel:         getenv("VM_LOG_LEVEL", "info"),
+		AgentDist:        strings.TrimSpace(os.Getenv("VM_AGENT_DIST")),
+		UpdateRepository: strings.TrimSpace(os.Getenv("VM_UPDATE_REPOSITORY")),
 	}
 
 	if _, err := ParseLogLevel(cfg.LogLevel); err != nil {

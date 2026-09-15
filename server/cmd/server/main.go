@@ -42,6 +42,7 @@ import (
 	"vpsmon/server/internal/proxyobserve"
 	"vpsmon/server/internal/store"
 	"vpsmon/server/internal/traffic"
+	"vpsmon/server/internal/updates"
 	"vpsmon/server/web"
 )
 
@@ -191,6 +192,10 @@ func openStore() (config.Config, *store.DB, error) {
 
 func run() error {
 	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	updateChecker, err := updates.New(cfg.UpdateRepository)
 	if err != nil {
 		return err
 	}
@@ -350,6 +355,7 @@ func run() error {
 		Tokens:           tokens,
 		Limiter:          limiter,
 		Version:          version,
+		Updates:          updateChecker,
 		Web:              web.Handler(),
 		TrustedProxies:   cfg.TrustedProxies,
 		DataDir:          cfg.DataDir,

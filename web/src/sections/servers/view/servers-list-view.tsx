@@ -29,6 +29,7 @@ import { EmptyContent } from 'src/components/empty-content';
 import { ConfirmDialog } from 'src/components/custom-dialog';
 import { CustomBreadcrumbs } from 'src/components/custom-breadcrumbs';
 import { CustomGridActionsCellItem } from 'src/components/custom-data-grid';
+import { UpdateCheckCard } from 'src/components/update-check/update-check-card';
 
 import { getErrorMessage } from 'src/auth/utils';
 
@@ -305,6 +306,9 @@ export function ServersListView() {
         sx={{ mb: 3 }}
       />
 
+      <Box sx={{ mb: 2 }}>
+        <UpdateCheckCard />
+      </Box>
       <Box sx={{ mb: 2, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 2 }}>
         <Typography variant="body2" color="text.secondary">
           当前 Agent 发布版：{agentVersions?.version || '暂无稳定版'}；未声明更新支持的旧 Agent

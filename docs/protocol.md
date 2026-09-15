@@ -695,6 +695,23 @@ TOTP为RFC6238、SHA1、六位、30秒周期，允许前后一个时间步。密
 
 发布目录VERSION来自镜像`/app/agent-dist/VERSION`并同步到数据目录，只有稳定版本可用于自动更新。初始安装脚本也下载固定摘要并在执行新二进制前校验。新增审计动作：`auth.totp_enable/disable/reset`、`settings.update`、`agent.update_requested`，不记录验证码、密钥或模板内容。
 
+### 检查更新（面板与探针）
+
+「检查更新」查询`VM_UPDATE_REPOSITORY`（默认项目仓库）的公开Releases，把最新稳定版与面板版本、面板携带的探针版本做比较。它只读公开发布信息：不下载二进制、不写数据库与审计、不修改探针产物、不下发`agent.update`。
+
+| 方法/路径 | 说明 |
+|---|---|
+| GET /api/updates | 管理员读取缓存状态，不发任何外部请求 |
+| POST /api/updates/check | 发起一次检查，返回同一结构；成功缓存10分钟、失败1分钟，期间重复调用返回缓存结果 |
+
+响应为`{repository,state,checked_at,next_check_at,latest,message,panel_version,panel_status,agent_version,agent_status}`，均`Cache-Control: no-store`。
+
+- `state`：`unchecked`（尚未检查）/`ok`（检查成功）/`error`（检查失败，`message`给出原因）。`checked_at`是最近一次检查的时间（成功或失败都更新）；`latest`只在成功时更新，失败时保留上一次成功结果，所以判断新鲜度只能看`state`，不能把`latest`非空当成刚确认过。取消或断连的请求既不改缓存也不谎报成功。
+- `latest`：公开仓库里最高的稳定标签，必须形如`vX.Y.Z`；草稿、预发布（`-rc`等）与其他标签（如`sing-box-v…`）不计。分页最多读3页，仍读不完时返回失败而不是猜一个"最新版"。
+- `panel_status`/`agent_status`：`available`（更新源更高）/`current`（一致）/`ahead`（当前更高）/`unknown`（无法比较）。`dev`、自定义后缀（如`v0.2.0-observe21`）与空值一律`unknown`，不参与排序。
+- `agent_version`来自`{VM_DATA_DIR}/agent/VERSION`，未部署为空串；它只用于展示，节点能否自动升级仍由`GET /api/agent-version`按`AgentVersionNewer`判定。更新源已有更高探针而面板仍携带旧产物时，接口如实返回该状态，界面提示先部署携带新探针的面板版本。
+- 失败原因与上游状态一一对应：仓库不存在或非公开（404）、限流或拒绝（403/429）、上游不可用、响应过大或非法、分页超限。失败不会显示成"已是最新"。
+
 ### 流量显示口径切换
 
 `net.boot_in_total` / `net.boot_out_total` 是 Agent 已上报的原始系统网卡累计值（字节），通常从本次开机开始，包含接入探针之前的流量。沿用 Agent 的网卡排除规则，默认不计回环、容器网桥和隧道接口。机器重启或网卡计数器重置会使数值下降；它不是服务商账单数据，也不是跨重启的历史总量。

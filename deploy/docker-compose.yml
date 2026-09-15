@@ -13,6 +13,7 @@ services:
       VM_JWT_SECRET: ${VM_JWT_SECRET}
       VM_TZ: ${VM_TZ:-Asia/Shanghai}
       VM_LOG_LEVEL: ${VM_LOG_LEVEL:-info}
+      VM_UPDATE_REPOSITORY: ${VM_UPDATE_REPOSITORY:-han-cczu/vps-monitor}
       # 前面就一层 Caddy：客户端真实 IP 取 X-Forwarded-For 从右往左第 1 个。
       # 这一项必须和实际拓扑对上——填错会让登录限速和审计里的 IP 全变成 Caddy 的容器地址，
       # 或者反过来变成可以被请求头伪造。
