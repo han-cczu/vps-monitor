@@ -79,6 +79,12 @@ func fixture(t *testing.T) (*Manager, *fakeRunner) {
 	if err = atomicWrite(p.Binary, []byte("old-binary"), 0755); err != nil {
 		t.Fatal(err)
 	}
+	if err = atomicWrite(p.Unit, []byte(ServiceUnit()), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err = m.createOwner(); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(m.Close)
 	return m, f
 }
@@ -97,6 +103,9 @@ func seed(t *testing.T, m *Manager) proto.CoreApply {
 		t.Fatal(err)
 	}
 	if err := m.save(record{InstalledVersion: a.Version, AppliedRevision: 1, ConfigSHA256: a.ConfigSHA256, Ports: a.Ports}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.createOwner(); err != nil {
 		t.Fatal(err)
 	}
 	return a
@@ -237,7 +246,12 @@ func TestRecoverInterruptedApply(t *testing.T) {
 	if err := writeJSON(m.paths.journal(), j); err != nil {
 		t.Fatal(err)
 	}
-	if err := atomicWrite(m.paths.Config, []byte(`{"interrupted":true}`), 0600); err != nil {
+	interrupted := []byte(`{"interrupted":true}`)
+	_, digest, _ := CompactConfig(interrupted)
+	if err := m.allowResource(m.paths.Config, digest); err != nil {
+		t.Fatal(err)
+	}
+	if err := atomicWrite(m.paths.Config, interrupted, 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.withLock(context.Background(), func() error { return m.recoverApply(context.Background()) }); err != nil {

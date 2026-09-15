@@ -111,6 +111,12 @@ func mergeRelay(raw json.RawMessage, outbound map[string]any) (json.RawMessage, 
 	return json.Marshal(extra)
 }
 func (s *Service) Relay(ctx context.Context, sourceID, targetID, inboundID int64, checker AdvancedChecker) (*store.Advanced, int64, error) {
+	if err := s.guard(sourceID); err != nil {
+		return nil, 0, err
+	}
+	if err := s.guard(targetID); err != nil {
+		return nil, 0, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, 0, err
@@ -185,6 +191,9 @@ func (s *Service) Relay(ctx context.Context, sourceID, targetID, inboundID int64
 // RemoveRelay removes only the active helper outbound. Dedicated users remain
 // for historical traffic but are unassigned, so the target stops accepting them.
 func (s *Service) RemoveRelay(ctx context.Context, sourceID int64, checker AdvancedChecker) (*store.Advanced, error) {
+	if err := s.guard(sourceID); err != nil {
+		return nil, err
+	}
 	data, err := s.advancedSnapshot(ctx, sourceID)
 	if err != nil {
 		return nil, err

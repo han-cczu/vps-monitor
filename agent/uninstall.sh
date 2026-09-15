@@ -4,7 +4,7 @@
 #   bash uninstall.sh [--purge-core]
 #
 # 默认删除 agent 自身，保留 sing-box 及其修订/恢复状态，供重新安装后接管。
-# --purge-core 连 agent 装的 sing-box 及状态一起删。
+# --purge-core 仅通过新 Agent 的所有权核验删除它安装的核心文件。
 set -euo pipefail
 
 BIN_PATH=/usr/local/bin/vps-agent
@@ -39,25 +39,22 @@ if command -v systemctl >/dev/null 2>&1; then
   echo "==> 停止并禁用 ${SERVICE}"
   systemctl stop "$SERVICE" 2>/dev/null || true
   systemctl disable "$SERVICE" 2>/dev/null || true
+elif command -v rc-service >/dev/null 2>&1; then
+  rc-service "$SERVICE" stop 2>/dev/null || true
+  rc-update del "$SERVICE" default 2>/dev/null || true
+fi
+
+if [ "$PURGE_CORE" -eq 1 ]; then
+  [ -f "$STATE_DIR/core-owner.json" ] || { echo "拒绝清理核心：缺少所有权记录。外部代理保持不变。" >&2; exit 1; }
+  "$BIN_PATH" core purge --config "$CONF_DIR/config.yaml" || { echo "核心所有权核验失败，保留文件。" >&2; exit 1; }
 fi
 
 echo "==> 删除服务与文件"
 rm -f "$UNIT_PATH"
+rm -f /etc/init.d/vps-agent
 rm -f "$BIN_PATH" "${BIN_PATH}.bak"
 rm -rf "$CONF_DIR"
 
-if [ "$PURGE_CORE" -eq 1 ]; then
-  echo "==> 一并删除 sing-box"
-  if command -v systemctl >/dev/null 2>&1; then
-    systemctl stop sing-box 2>/dev/null || true
-    systemctl disable sing-box 2>/dev/null || true
-  fi
-  rm -f "$CORE_UNIT" /etc/logrotate.d/sing-box
-  rm -f "$CORE_BIN"
-  rm -rf "$CORE_DIR"
-  rm -rf /var/log/sing-box
-  rm -rf "$STATE_DIR"
-fi
 
 if command -v systemctl >/dev/null 2>&1; then
   systemctl daemon-reload

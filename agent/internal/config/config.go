@@ -12,6 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 	"vpsmon/agent/internal/corectl"
+	"vpsmon/agent/internal/proxyobserve"
 )
 
 // DefaultPath 是配置文件的默认位置。
@@ -33,16 +34,18 @@ var DefaultDiskMounts = []string{"/"}
 
 // Config 是 agent 的运行配置。
 type Config struct {
-	Server         string     `yaml:"server"`          // wss://panel.example.com/api/agent/ws
-	Token          string     `yaml:"token"`           // agent token，面板创建节点时给的
-	ReportInterval int        `yaml:"report_interval"` // 秒，服务端 config 消息可覆盖
-	Interfaces     Interfaces `yaml:"interfaces"`
-	DiskMounts     []string   `yaml:"disk_mounts"` // 磁盘统计的挂载点，多项求和
-	LogLevel       string     `yaml:"log_level"`   // debug / info / warn / error
-	Core           Core       `yaml:"core"`
+	Server         string              `yaml:"server"`          // wss://panel.example.com/api/agent/ws
+	Token          string              `yaml:"token"`           // agent token，面板创建节点时给的
+	ReportInterval int                 `yaml:"report_interval"` // 秒，服务端 config 消息可覆盖
+	Interfaces     Interfaces          `yaml:"interfaces"`
+	DiskMounts     []string            `yaml:"disk_mounts"` // 磁盘统计的挂载点，多项求和
+	LogLevel       string              `yaml:"log_level"`   // debug / info / warn / error
+	Core           Core                `yaml:"core"`
+	ProxyObserve   proxyobserve.Config `yaml:"proxy_observe"`
 }
 
 type Core struct {
+	Mode         string `yaml:"mode"`
 	StatsAddress string `yaml:"stats_address"`
 }
 
@@ -97,6 +100,15 @@ func Parse(raw []byte) (Config, error) {
 		cfg.Core.StatsAddress = "127.0.0.1:10085"
 	}
 	if err := corectl.ValidateStatsAddress(cfg.Core.StatsAddress); err != nil {
+		return Config{}, err
+	}
+	if cfg.Core.Mode == "" {
+		cfg.Core.Mode = "auto"
+	}
+	if cfg.Core.Mode != "auto" && cfg.Core.Mode != "observe" {
+		return Config{}, fmt.Errorf("core.mode 必须是 auto 或 observe")
+	}
+	if err := cfg.ProxyObserve.Validate(); err != nil {
 		return Config{}, err
 	}
 

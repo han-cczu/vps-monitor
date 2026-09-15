@@ -134,6 +134,13 @@ func (m *Manager) binaryVersion(ctx context.Context, path string) (string, error
 	return parseVersion(out)
 }
 func (m *Manager) State(ctx context.Context) proto.CoreState {
+	if m.verifyOwned() != nil {
+		st := proto.CoreState{Type: proto.TypeCoreState, Core: "sing-box", Listening: []string{}, Firewall: "none"}
+		m.mu.Lock()
+		m.lastState = st
+		m.mu.Unlock()
+		return st
+	}
 	r := m.snapshot()
 	stored, readErr := m.reportedRecord()
 	if readErr == nil {

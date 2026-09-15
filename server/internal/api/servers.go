@@ -284,6 +284,9 @@ func (d *Deps) deleteServer(w http.ResponseWriter, r *http.Request) {
 	if d.Reconciler != nil {
 		d.Reconciler.Forget(before.ID)
 	}
+	if d.ProxyObserve != nil {
+		d.ProxyObserve.Forget(before.ID)
+	}
 	if d.Ping != nil {
 		d.Ping.Forget(before.ID)
 	}

@@ -1,5 +1,6 @@
 import type { GridColDef } from '@mui/x-data-grid';
 import type { Inbound, CoreState } from 'src/types/proxy';
+import type { ProxyObservations } from 'src/types/proxy-observation';
 
 import useSWR from 'swr';
 
@@ -29,17 +30,27 @@ import { getErrorMessage } from 'src/auth/utils';
 
 import { coreStatus, countAssignments } from '../helpers';
 
-type NodeProxy = { id: number; core?: CoreState; inbounds?: Inbound[]; error?: string };
+type NodeProxy = {
+  id: number;
+  core?: CoreState;
+  inbounds?: Inbound[];
+  observed?: ProxyObservations;
+  error?: string;
+};
+
+const externalInstances = (row: NodeProxy) =>
+  row.observed?.instances.filter((i) => i.ownership === 'external' && !i.absent) ?? [];
 
 async function fetchOverview([, ids]: [string, number[]]): Promise<NodeProxy[]> {
   return Promise.all(
     ids.map(async (id) => {
       try {
-        const [core, inbounds] = await Promise.all([
+        const [core, inbounds, observed] = await Promise.all([
           fetcher<{ core: CoreState }>(`/api/servers/${id}/core`),
           fetcher<{ inbounds: Inbound[] }>(`/api/servers/${id}/inbounds`),
+          fetcher<ProxyObservations>(`/api/servers/${id}/proxy-observations`),
         ]);
-        return { id, core: core.core, inbounds: inbounds.inbounds };
+        return { id, core: core.core, inbounds: inbounds.inbounds, observed };
       } catch (err) {
         return { id, error: getErrorMessage(err) };
       }
@@ -91,10 +102,14 @@ export function ProxyListView() {
     {
       field: 'status',
       headerName: '核心状态',
-      width: 112,
+      width: 160,
       valueGetter: (_, row) => (row.core ? coreStatus(row.core).label : ''),
       renderCell: ({ row }) =>
-        row.core ? (
+        row.observed?.management === 'external' ? (
+          <Label color="info">外部管理 · 只读</Label>
+        ) : row.observed?.management === 'unknown' ? (
+          <Label color="warning">待核验 / 升级探针</Label>
+        ) : row.core ? (
           <Label color={coreStatus(row.core).color}>{coreStatus(row.core).label}</Label>
         ) : (
           '—'
@@ -107,7 +122,11 @@ export function ProxyListView() {
       valueGetter: (_, row) => row.core?.installed_version ?? '',
       renderCell: ({ row }) => (
         <Box sx={{ height: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-          {row.core?.installed_version || '—'}
+          {externalInstances(row).length
+            ? externalInstances(row)
+                .map((i) => `${i.core === 'xray' ? 'Xray' : 'sing-box'} ${i.version || ''}`)
+                .join('、')
+            : row.core?.installed_version || '—'}
           {row.core?.installed_version && current && row.core.installed_version !== current && (
             <Label color="warning">可升级</Label>
           )}
@@ -119,7 +138,9 @@ export function ProxyListView() {
       headerName: '入站数',
       width: 84,
       type: 'number',
-      valueGetter: (_, row) => row.inbounds?.length ?? null,
+      valueGetter: (_, row) =>
+        externalInstances(row).reduce((n, i) => n + i.inbounds.length, 0) +
+        (row.inbounds?.length ?? 0),
     },
     {
       field: 'users',

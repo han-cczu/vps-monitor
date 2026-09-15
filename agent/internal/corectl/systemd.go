@@ -49,8 +49,11 @@ func (m *Manager) command(ctx context.Context, name string, args ...string) (str
 	return m.runner.Run(ctx, name, args...)
 }
 func (m *Manager) service(ctx context.Context, action string) error {
+	if err := m.verifyOwned(); err != nil {
+		return err
+	}
 	switch action {
-	case "start", "stop", "restart", "enable":
+	case "start", "stop", "restart", "enable", "disable":
 	default:
 		return fmt.Errorf("unsupported systemctl action")
 	}

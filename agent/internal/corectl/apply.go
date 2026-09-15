@@ -55,6 +55,9 @@ func (m *Manager) healthy(ctx context.Context, ports []string) error {
 }
 
 func (m *Manager) apply(ctx context.Context, a proto.CoreApply) error {
+	if err := m.verifyOwned(); err != nil {
+		return err
+	}
 	r := m.snapshot()
 	if a.Revision < r.AppliedRevision || (a.Revision == r.AppliedRevision && a.ConfigSHA256 != r.ConfigSHA256) {
 		return fmt.Errorf("stale or conflicting revision")
@@ -67,6 +70,9 @@ func (m *Manager) apply(ctx context.Context, a proto.CoreApply) error {
 		return fmt.Errorf("installed version differs from requested version; install explicitly first")
 	}
 	compact, _, _ := CompactConfig(a.Config)
+	if err := m.allowResource(m.paths.Config, a.ConfigSHA256); err != nil {
+		return err
+	}
 	if a.Revision == r.AppliedRevision && a.ConfigSHA256 == r.ConfigSHA256 {
 		actual, readErr := os.ReadFile(m.paths.Config)
 		_, sha, hashErr := CompactConfig(actual)
@@ -84,6 +90,9 @@ func (m *Manager) apply(ctx context.Context, a proto.CoreApply) error {
 	// Do not forward checker output: it may contain credentials from the supplied JSON.
 	if _, err = m.command(ctx, m.paths.Binary, "check", "-c", next); err != nil {
 		return fmt.Errorf("sing-box check failed (configuration preserved): %w", err)
+	}
+	if err = m.verifyOwned(); err != nil {
+		return err
 	}
 	old, err := os.ReadFile(m.paths.Config)
 	if err != nil && !os.IsNotExist(err) {
@@ -103,6 +112,9 @@ func (m *Manager) apply(ctx context.Context, a proto.CoreApply) error {
 			return fmt.Errorf("apply failed: %w; rollback failed: %v", cause, rollbackErr)
 		}
 		return fmt.Errorf("apply failed, rolled back: %w", cause)
+	}
+	if err = m.verifyOwned(); err != nil {
+		return err
 	}
 	if err = os.Rename(next, m.paths.Config); err != nil {
 		return fail(err)
@@ -128,14 +140,21 @@ func (m *Manager) apply(ctx context.Context, a proto.CoreApply) error {
 	if err = os.Remove(m.paths.journal()); err != nil {
 		return fail(err)
 	}
-	return nil
+	return m.sealOwner()
 }
 
 func (m *Manager) rollback(ctx context.Context, j applyJournal) error {
+	if err := m.verifyOwned(); err != nil {
+		return err
+	}
 	if j.HadConfig {
 		b, err := os.ReadFile(m.paths.backup())
 		if err != nil {
 			return err
+		}
+		_, hash, e := CompactConfig(b)
+		if e != nil || hash != j.Previous.ConfigSHA256 {
+			return ErrExternalCore
 		}
 		if err = atomicWrite(m.paths.Config, b, 0600); err != nil {
 			return err
@@ -157,7 +176,10 @@ func (m *Manager) rollback(ctx context.Context, j applyJournal) error {
 	if err := m.save(j.Previous); err != nil {
 		return err
 	}
-	return os.Remove(m.paths.journal())
+	if err := os.Remove(m.paths.journal()); err != nil {
+		return err
+	}
+	return m.sealOwner()
 }
 
 // A process interrupted between replacement and commit must restore the last applied state.
@@ -165,6 +187,9 @@ func (m *Manager) recoverApply(ctx context.Context) error {
 	b, err := os.ReadFile(m.paths.journal())
 	if os.IsNotExist(err) {
 		return nil
+	}
+	if m.verifyOwned() != nil {
+		return ErrExternalCore
 	}
 	if err != nil {
 		return err

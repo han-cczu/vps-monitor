@@ -13,6 +13,7 @@ import (
 
 	"vpsmon/agent/internal/config"
 	"vpsmon/agent/internal/corectl"
+	"vpsmon/agent/internal/proxyobserve"
 	"vpsmon/proto"
 )
 
@@ -45,7 +46,7 @@ func runCore(args []string) error {
 	if *address != "" {
 		cfg.Core.StatsAddress = *address
 	}
-	m, err := corectl.New(corectl.Options{Server: cfg.Server, Token: cfg.Token, StatsAddress: cfg.Core.StatsAddress})
+	m, err := corectl.New(corectl.Options{Server: cfg.Server, Token: cfg.Token, StatsAddress: cfg.Core.StatsAddress, ObserveOnly: cfg.Core.Mode == "observe", ExternalPresent: proxyobserve.ExternalPresent})
 	if err != nil {
 		return err
 	}
@@ -60,8 +61,10 @@ func runCore(args []string) error {
 		out, err = m.Stats(ctx)
 	case "logs":
 		var txt string
-		txt, err = corectl.Tail(corectl.DefaultPaths().Log, *lines)
+		txt, err = m.OwnedLogs(*lines)
 		out = proto.CoreLogs{Type: proto.TypeCoreLogs, Kind: "error", Text: txt}
+	case "purge":
+		err = m.Purge(ctx)
 	case "apply":
 		var raw []byte
 		raw, err = os.ReadFile(*file)

@@ -70,6 +70,9 @@ func validateAdvanced(raw json.RawMessage) (json.RawMessage, error) {
 	return compact.Bytes(), nil
 }
 func (s *Service) SaveAdvanced(ctx context.Context, serverID int64, raw json.RawMessage) (*store.Advanced, error) {
+	if err := s.guard(serverID); err != nil {
+		return nil, err
+	}
 	compact, err := validateAdvanced(raw)
 	if err != nil {
 		return nil, err

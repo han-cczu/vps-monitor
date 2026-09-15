@@ -172,7 +172,11 @@ func (s *Service) Assign(ctx context.Context, id int64, inboundIDs []int64) (*st
 			return invalid(fmt.Errorf("中转专用用户的分配由中转助手管理"))
 		}
 		for _, inboundID := range inboundIDs {
-			if _, err = q.Inbound(ctx, inboundID); err != nil {
+			inbound, e := q.Inbound(ctx, inboundID)
+			if e != nil {
+				return e
+			}
+			if err := s.guard(inbound.ServerID); err != nil {
 				return err
 			}
 		}

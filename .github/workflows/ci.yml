@@ -36,10 +36,10 @@ jobs:
         run: go test ./proto/... ./agent/... ./server/...
 
       - name: agent concurrency checks
-        run: go test -race ./agent/internal/corectl ./agent/internal/transport ./agent/internal/ping ./agent/internal/selfupdate
+        run: go test -race ./agent/internal/corectl ./agent/internal/transport ./agent/internal/ping ./agent/internal/selfupdate ./agent/internal/proxyobserve
 
       - name: proxy concurrency checks
-        run: go test -race ./server/internal/proxy/... ./server/internal/store ./server/internal/api ./server/internal/hub ./server/internal/corefiles
+        run: go test -race ./server/internal/proxy/... ./server/internal/proxyobserve ./server/internal/store ./server/internal/api ./server/internal/hub ./server/internal/corefiles
 
       - name: billing and alert concurrency checks
         run: go test -race ./server/internal/traffic ./server/internal/billing ./server/internal/alert ./server/internal/maintenance
@@ -48,6 +48,13 @@ jobs:
         run: |
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /dev/null ./agent/cmd/agent
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o /dev/null ./agent/cmd/agent
+
+      - name: OpenRC installer and external-core preservation
+        run: |
+          mkdir -p dist/openrc-smoke
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dist/openrc-smoke/vps-agent-linux-amd64 ./agent/cmd/agent
+          docker build -t vpsmon-openrc-test -f agent/tests/Dockerfile.openrc agent/tests
+          docker run --rm --network none --memory 192m --cpus 1 -v "$PWD/agent:/scripts:ro" -v "$PWD/dist/openrc-smoke:/artifacts:ro" -v "$PWD/agent/tests/openrc-smoke.sh:/test.sh:ro" vpsmon-openrc-test bash /test.sh
 
   web:
     name: tsc + eslint + build

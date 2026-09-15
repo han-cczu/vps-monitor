@@ -47,7 +47,13 @@ done
 [ -n "$TOKEN" ] || usage
 
 [ "$(id -u)" -eq 0 ] || die "请用 root 运行（sudo bash ...）"
-command -v systemctl >/dev/null 2>&1 || die "没有 systemctl，这个脚本只支持 systemd 系统"
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  INIT=systemd
+elif command -v rc-service >/dev/null 2>&1 && command -v rc-update >/dev/null 2>&1; then
+  INIT=openrc
+else
+  die "需要 systemd 或 OpenRC；其它系统可手动运行探针"
+fi
 
 # 下载器：curl 优先，退回 wget
 if command -v curl >/dev/null 2>&1; then
@@ -136,6 +142,24 @@ fi
 chmod 600 "$CONF_PATH"
 
 # 3. systemd unit
+if [ "$INIT" = openrc ]; then
+  cat > /etc/init.d/vps-agent <<'EOF'
+#!/sbin/openrc-run
+description="VPS Monitor Agent"
+command="/usr/local/bin/vps-agent"
+command_args="--config /etc/vps-agent/config.yaml"
+command_background="yes"
+pidfile="/run/vps-agent.pid"
+output_log="/var/log/vps-agent.log"
+error_log="/var/log/vps-agent.log"
+depend() { need net; }
+EOF
+  chmod 755 /etc/init.d/vps-agent
+  rc-update add "$SERVICE" default
+  rc-service "$SERVICE" restart
+  echo "==> 完成。日志：/var/log/vps-agent.log（外部核心仅观测）"
+  exit 0
+fi
 echo "==> 写入 ${UNIT_PATH}"
 cat > "$UNIT_PATH" <<EOF
 [Unit]
