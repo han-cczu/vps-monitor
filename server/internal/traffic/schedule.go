@@ -24,6 +24,16 @@ func NextResetDate(start time.Time, mode string, day int) time.Time {
 	return NextBoundary(start, day)
 }
 
+// Automatic suggestions must remain in the future when an existing period's
+// rule changes. Advancing the date does not reset counters or move its start.
+func UpcomingResetDate(start, now time.Time, mode string, day int) time.Time {
+	next := NextResetDate(start, mode, day)
+	for !next.After(now) {
+		next = NextResetDate(next, mode, day)
+	}
+	return next
+}
+
 func NewPeriod(now time.Time, mode string, day int) store.TrafficPeriod {
 	start := PeriodStart(now, day)
 	if mode == "days" {
@@ -86,7 +96,8 @@ func (a *Accountant) UpdateServer(ctx context.Context, id int64, in store.Server
 		}
 		after.Start, after.NextReset = input.Start, input.NextReset
 	} else if ruleChanged {
-		after.NextReset = NextResetDate(time.Unix(before.Start, 0).In(a.now().Location()), in.TrafficResetMode, in.TrafficResetDay).Unix()
+		now := a.now()
+		after.NextReset = UpcomingResetDate(time.Unix(before.Start, 0).In(now.Location()), now, in.TrafficResetMode, in.TrafficResetDay).Unix()
 	}
 	changed := ruleChanged || after.Start != before.Start || after.NextReset != before.NextReset
 	if changed {

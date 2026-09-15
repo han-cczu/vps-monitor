@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { nextTrafficReset } from '../src/utils/traffic-schedule.ts';
+import { nextTrafficReset, upcomingTrafficReset } from '../src/utils/traffic-schedule.ts';
 
 test('30-day cadence is distinct from monthly dates, including leap years and year boundaries', () => {
   assert.equal(nextTrafficReset('2026-08-15', 'days', 15), '2026-09-14');
@@ -19,4 +19,14 @@ test('empty or invalid dates do not produce a misleading reset date', () => {
     assert.equal(nextTrafficReset(value, 'days', 1), '');
   }
   for (const day of [0, 32, 1.5, NaN]) assert.equal(nextTrafficReset('2026-09-15', 'monthly', day), '');
+});
+
+test('automatic reset suggestions advance past today while preserving the selected cadence', () => {
+  assert.equal(upcomingTrafficReset('2026-08-31', 'monthly', 15, '2026-09-15'), '2026-10-15');
+  assert.equal(upcomingTrafficReset('2026-08-31', 'monthly', 14, '2026-09-15'), '2026-10-14');
+  assert.equal(upcomingTrafficReset('2026-08-31', 'monthly', 16, '2026-09-15'), '2026-09-16');
+  assert.equal(upcomingTrafficReset('2026-07-15', 'days', 15, '2026-09-15'), '2026-10-13');
+  assert.equal(upcomingTrafficReset('2028-01-31', 'monthly', 31, '2028-02-29'), '2028-03-31');
+  assert.equal(upcomingTrafficReset('2026-11-30', 'monthly', 15, '2026-12-15'), '2027-01-15');
+  assert.equal(upcomingTrafficReset('', 'monthly', 15, '2026-09-15'), '');
 });

@@ -52,6 +52,57 @@ func scheduleConfig() store.ServerInput {
 	return store.ServerInput{Name: "test", Currency: "CNY", BillingCycle: "year", TrafficMode: "max", TrafficResetMode: "days", TrafficResetDay: 31}
 }
 
+func TestChangeResetRuleAdvancesPastTodayAndPreservesUsage(t *testing.T) {
+	for _, tc := range []struct {
+		day  int
+		next string
+	}{
+		{14, "2026-10-14"},
+		{15, "2026-10-15"},
+		{16, "2026-09-16"},
+	} {
+		t.Run(tc.next, func(t *testing.T) {
+			ctx := context.Background()
+			now := date(t, "2026-09-15", time.UTC).Add(12 * time.Hour)
+			a, db, id, _ := testAccountant(t, &now)
+			a.OnMetrics(id, sample(1, 100, 200))
+			a.OnMetrics(id, sample(2, 140, 270))
+			before, _ := a.PeriodFor(id)
+			config := scheduleConfig()
+			config.TrafficResetMode, config.TrafficResetDay = "monthly", tc.day
+			expiry := "2027-07-15"
+			config.ExpireAt = &expiry
+			if _, err := a.UpdateServer(ctx, id, config, nil); err != nil {
+				t.Fatalf("changing only the reset day failed: %v", err)
+			}
+			restarted := New(db, nil)
+			restarted.now = a.now
+			if err := restarted.Load(ctx); err != nil {
+				t.Fatal(err)
+			}
+			view := restarted.SnapshotFor(id)
+			if view.PeriodStart != before.Start || view.PeriodEndExpected != date(t, tc.next, time.UTC).Unix() || view.In != 40 || view.Out != 70 {
+				t.Fatalf("rule edit changed usage or selected the wrong reset: %+v", view)
+			}
+			stored, _ := db.GetServer(ctx, id)
+			if stored.BillingCycle != "year" || stored.ExpireAt == nil || *stored.ExpireAt != expiry {
+				t.Fatal("traffic schedule changed annual billing")
+			}
+			now = date(t, tc.next, time.UTC)
+			if err := restarted.Rollover(ctx, now); err != nil {
+				t.Fatal(err)
+			}
+			if view := restarted.SnapshotFor(id); view.Used != 0 || view.PeriodStart != now.Unix() {
+				t.Fatalf("usage did not reset on the new date: %+v", view)
+			}
+			rows, err := db.TrafficHistory(ctx, id, 12)
+			if err != nil || len(rows) != 2 || rows[1].In != 40 || rows[1].Out != 70 {
+				t.Fatalf("closed usage was lost: %+v, %v", rows, err)
+			}
+		})
+	}
+}
+
 func TestManualTrafficDatesPreserveUsageAndSurviveRestart(t *testing.T) {
 	ctx := context.Background()
 	now := date(t, "2026-09-15", time.UTC).Add(12 * time.Hour)

@@ -19,7 +19,7 @@ import DialogActions from '@mui/material/DialogActions';
 import InputAdornment from '@mui/material/InputAdornment';
 
 import { formatPanelDate } from 'src/utils/format';
-import { nextTrafficReset } from 'src/utils/traffic-schedule';
+import { upcomingTrafficReset } from 'src/utils/traffic-schedule';
 
 import { createServer, updateServer } from 'src/api/servers';
 import {
@@ -150,8 +150,8 @@ const TABS: { value: TabValue; label: string }[] = [
 
 function toFormValues(server?: ServerItem | null): ServerFormInput {
   const traffic = splitTraffic(server?.traffic_limit ?? 0);
-  const start =
-    server?.traffic_period_start || formatPanelDate(Date.now() / 1000).replaceAll('/', '-');
+  const today = formatPanelDate(Date.now() / 1000).replaceAll('/', '-');
+  const start = server?.traffic_period_start || today;
   const mode = server?.traffic_reset_mode ?? 'days';
   const resetDay = server?.traffic_reset_day ?? Number(start.slice(-2));
 
@@ -172,7 +172,7 @@ function toFormValues(server?: ServerItem | null): ServerFormInput {
     traffic_reset_day: resetDay,
     traffic_reset_mode: mode,
     traffic_period_start: start,
-    traffic_next_reset: server?.traffic_next_reset || nextTrafficReset(start, mode, resetDay),
+    traffic_next_reset: server?.traffic_next_reset || upcomingTrafficReset(start, mode, resetDay, today),
     traffic_mode: server?.traffic_mode ?? 'max',
     bandwidth_label: server?.bandwidth_label ?? '',
     note: server?.note ?? '',
@@ -267,10 +267,11 @@ export function ServerFormDialog({
     if (!manualNextReset) {
       methods.setValue(
         'traffic_next_reset',
-        nextTrafficReset(
+        upcomingTrafficReset(
           methods.getValues('traffic_period_start'),
           methods.getValues('traffic_reset_mode'),
-          Number(methods.getValues('traffic_reset_day'))
+          Number(methods.getValues('traffic_reset_day')),
+          formatPanelDate(Date.now() / 1000).replaceAll('/', '-')
         ),
         { shouldDirty: true }
       );
@@ -530,7 +531,7 @@ export function ServerFormDialog({
               slotProps={{
                 textField: {
                   helperText:
-                    '默认按开始日期和重置周期计算，可手动调整本次日期；后续按所选周期重置。日期均按面板时区计算。',
+                    '按开始日期和重置周期推算今天之后的下一次日期，可手动调整本次日期。日期均按面板时区计算。',
                 },
               }}
             />
@@ -541,10 +542,11 @@ export function ServerFormDialog({
                 setManualNextReset(false);
                 methods.setValue(
                   'traffic_next_reset',
-                  nextTrafficReset(
+                  upcomingTrafficReset(
                     methods.getValues('traffic_period_start'),
                     methods.getValues('traffic_reset_mode'),
-                    Number(methods.getValues('traffic_reset_day'))
+                    Number(methods.getValues('traffic_reset_day')),
+                    formatPanelDate(Date.now() / 1000).replaceAll('/', '-')
                   ),
                   { shouldDirty: true }
                 );

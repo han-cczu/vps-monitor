@@ -204,7 +204,7 @@ func (req serverRequest) scheduleInput(in store.ServerInput, now time.Time, crea
 			return nil, err
 		}
 		p.Start = start.Unix()
-		p.NextReset = traffic.NextResetDate(start, in.TrafficResetMode, in.TrafficResetDay).Unix()
+		p.NextReset = traffic.UpcomingResetDate(start, now, in.TrafficResetMode, in.TrafficResetDay).Unix()
 	}
 	if req.TrafficNextReset != nil {
 		next, err := parse(req.TrafficNextReset, "下次重置日期")

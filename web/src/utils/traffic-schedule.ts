@@ -18,3 +18,15 @@ export function nextTrafficReset(start: string, mode: TrafficResetMode, day: num
   if (next <= date) next = boundary(date.getUTCMonth() + 1);
   return next.toISOString().slice(0, 10);
 }
+
+/** Keep automatic suggestions in the future without changing existing usage or its start date. */
+export function upcomingTrafficReset(
+  start: string,
+  mode: TrafficResetMode,
+  day: number,
+  today: string
+): string {
+  let next = nextTrafficReset(start, mode, day);
+  while (next && next <= today) next = nextTrafficReset(next, mode, day);
+  return next;
+}

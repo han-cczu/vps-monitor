@@ -65,3 +65,30 @@ func TestTrafficScheduleAPI(t *testing.T) {
 		t.Fatalf("initial dates: %v", customRow)
 	}
 }
+
+func TestLegacyClientChangesMonthlyResetDay(t *testing.T) {
+	e := newTestEnv(t, func(d *Deps) {
+		d.Traffic = traffic.New(d.DB, nil)
+		if err := d.Traffic.Load(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	})
+	token := e.adminToken(t)
+	now := clock.Now()
+	start := now.AddDate(0, 0, -2).Format(time.DateOnly)
+	id, _, created := e.createServer(t, token, map[string]any{
+		"name": "annual node", "billing_cycle": "year", "expire_at": "2027-07-15",
+		"traffic_reset_day": now.Day()%31 + 1, "traffic_period_start": start,
+		"traffic_next_reset": now.AddDate(0, 0, 10).Format(time.DateOnly),
+	})
+	initial := created["server"].(map[string]any)
+	// The old form submits only a monthly day, with no schedule dates or revision.
+	resp, out := e.do(t, "PUT", "/api/servers/"+strconv.FormatInt(id, 10), token, map[string]any{
+		"name": "annual node", "billing_cycle": "year", "expire_at": "2027-07-15", "traffic_reset_day": now.Day(),
+	})
+	saved, _ := out["server"].(map[string]any)
+	wantNext := traffic.NextBoundary(now, now.Day()).Format(time.DateOnly)
+	if resp.StatusCode != 200 || saved["traffic_next_reset"] != wantNext || saved["traffic_period_start"] != start || saved["expire_at"] != "2027-07-15" || saved["traffic_reset_mode"] != "monthly" {
+		t.Fatalf("legacy reset-day edit: %d %v (initial %v)", resp.StatusCode, out, initial)
+	}
+}
