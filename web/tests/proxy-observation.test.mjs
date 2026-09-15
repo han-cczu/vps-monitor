@@ -11,5 +11,6 @@ test('unknown, external and offline instances never expose managed editing', () 
 test('missing external counters stay unavailable instead of zero', () => {
   for (const n of [null, undefined, -1, NaN]) assert.equal(observedBytes(n), '不可用');
   assert.equal(observedBytes(0), '0 B');
-  assert.equal(observedBytes(1024 ** 3), '1 GiB');
+  assert.equal(observedBytes(500_000_000_000), '500 GB');
+  assert.equal(observedBytes(1_000_000_000_000), '1 TB');
 });

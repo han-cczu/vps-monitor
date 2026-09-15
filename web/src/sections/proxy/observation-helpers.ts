@@ -5,11 +5,11 @@ export function canEditManagedProxy(data?: ProxyObservations) {
 }
 export function observedBytes(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value) || value < 0) return '不可用';
-  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
   let n = value;
   let index = 0;
-  while (n >= 1024 && index < units.length - 1) {
-    n /= 1024;
+  while (n >= 1000 && index < units.length - 1) {
+    n /= 1000;
     index += 1;
   }
   return `${n.toLocaleString('zh-CN', { maximumFractionDigits: 2 })} ${units[index]}`;
