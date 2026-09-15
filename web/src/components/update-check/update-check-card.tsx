@@ -27,13 +27,13 @@ export function UpdateCheckCard() {
   const check = async () => {
     const checkedAt = data?.checked_at;
     setBusy(true);
-    setCheckError('');
     setReused(false);
     try {
       const next = await checkUpdates();
       // 检查器对成功结果缓存 10 分钟、失败结果 1 分钟：检查时间没变就是复用了缓存。
       setReused(checkedAt !== undefined && next.checked_at === checkedAt);
       await mutate(next, false);
+      setCheckError('');
     } catch (err) {
       setCheckError(getErrorMessage(err));
     } finally {
@@ -41,13 +41,15 @@ export function UpdateCheckCard() {
     }
   };
 
-  const summary = data ? updateSummary(data) : null;
+  const requestError = checkError || (error ? getErrorMessage(error) : '');
+  const displayState = requestError ? 'error' : (data?.state ?? 'unchecked');
+  const summary = data && !requestError ? updateSummary(data) : null;
   const cells: [string, string][] = [
     ['当前面板', data?.panel_version || '—'],
     ['面板携带的探针', data?.agent_version || '未部署'],
     [
-      latestLabel(data?.state ?? 'unchecked', Boolean(data?.latest)),
-      latestValue(data?.state ?? 'unchecked', data?.latest?.version),
+      latestLabel(displayState, Boolean(data?.latest)),
+      latestValue(displayState, data?.latest?.version),
     ],
   ];
 
@@ -68,8 +70,11 @@ export function UpdateCheckCard() {
             检查更新
           </Button>
         </Box>
-        {(checkError || error) && (
-          <Alert severity="error">{checkError || getErrorMessage(error)}</Alert>
+        {requestError && (
+          <Alert severity="error">
+            {requestError}，本次未能取得检查结果，请重试。
+            {data?.latest && ' 保留的版本来自上次成功检查。'}
+          </Alert>
         )}
         <Box
           sx={{ gap: 2, display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' } }}
@@ -86,13 +91,13 @@ export function UpdateCheckCard() {
           ))}
         </Box>
         <Box aria-live="polite" aria-busy={busy}>
-          {data?.state === 'error' && (
+          {!requestError && data?.state === 'error' && (
             <Alert severity="error">
               {data.message}
               {data.latest && ' 上面显示的版本来自上次成功检查。'}
             </Alert>
           )}
-          {data?.state === 'ok' && !data.latest && (
+          {!requestError && data?.state === 'ok' && !data.latest && (
             <Alert severity="info">
               更新源还没有稳定版本发布（草稿和预发布不计），暂时无法比较面板与探针版本。
             </Alert>
@@ -117,11 +122,13 @@ export function UpdateCheckCard() {
         {data && (
           <Typography variant="caption" color="text.secondary">
             更新源：{data.repository}。
-            {data.checked_at
-              ? `上次检查：${new Date(data.checked_at * 1000).toLocaleString()}；${
-                  data.state === 'error' ? '失败后 1 分钟可重试' : '10 分钟内复用检查结果'
-                }。`
-              : '点击检查更新，查询面板和探针的最新稳定版。'}
+            {requestError
+              ? '本次请求失败，保留的版本信息尚未重新确认。'
+              : data.checked_at
+                ? `上次检查：${new Date(data.checked_at * 1000).toLocaleString()}；${
+                    data.state === 'error' ? '失败后 1 分钟可重试' : '10 分钟内复用检查结果'
+                  }。`
+                : '点击检查更新，查询面板和探针的最新稳定版。'}
             {reused && ' 本次点击复用了缓存，没有重新查询更新源。'}
           </Typography>
         )}

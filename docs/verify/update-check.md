@@ -4,6 +4,10 @@
 `server/internal/updates/`、`server/internal/api/updates.go`、`web/src/components/update-check/` 与两个入口页；
 接口语义见 [protocol.md §检查更新](../protocol.md)，运维说明见 [runbook.md §检查更新](../runbook.md)。
 
+## 上线前补充回归
+
+浏览器到面板的请求失败也纳入卡片展示状态：保留的版本标注为上次成功结果，隐藏旧的版本结论，直到后续请求成功才恢复。失败后的重试期间也不会提前恢复“已是最新”。`web/tests/update-check-card.test.mjs` 调用实际组件的点击处理和后续渲染，使用受控 API 与内存 hook 覆盖成功缓存 → 请求失败 → 重试中 → 恢复成功。补充修复后，前端 33 项测试、lint、生产构建及三个 Go 模块的全量测试和 vet 均通过；线上验证另记在本次部署记录中。
+
 ## 功能入口
 
 | 入口 | 位置 | 说明 |
