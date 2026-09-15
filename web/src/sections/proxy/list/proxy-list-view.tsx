@@ -29,6 +29,7 @@ import { CustomBreadcrumbs } from 'src/components/custom-breadcrumbs';
 import { getErrorMessage } from 'src/auth/utils';
 
 import { coreStatus, countAssignments } from '../helpers';
+import { canEditManagedProxy } from '../observation-helpers';
 
 type NodeProxy = {
   id: number;
@@ -87,7 +88,7 @@ export function ProxyListView() {
     },
     {
       field: 'online',
-      headerName: 'Agent',
+      headerName: '探针',
       width: 90,
       valueGetter: (_, row) => row.core?.online,
       renderCell: ({ row }) =>
@@ -117,7 +118,7 @@ export function ProxyListView() {
     },
     {
       field: 'version',
-      headerName: '已安装版本',
+      headerName: '核心版本',
       width: 180,
       valueGetter: (_, row) => row.core?.installed_version ?? '',
       renderCell: ({ row }) => (
@@ -127,9 +128,10 @@ export function ProxyListView() {
                 .map((i) => `${i.core === 'xray' ? 'Xray' : 'sing-box'} ${i.version || ''}`)
                 .join('、')
             : row.core?.installed_version || '—'}
-          {row.core?.installed_version && current && row.core.installed_version !== current && (
-            <Label color="warning">可升级</Label>
-          )}
+          {canEditManagedProxy(row.observed) &&
+            row.core?.installed_version &&
+            current &&
+            row.core.installed_version !== current && <Label color="warning">可升级</Label>}
         </Box>
       ),
     },
@@ -173,7 +175,7 @@ export function ProxyListView() {
       filterable: false,
       renderCell: ({ row }) => (
         <Button component={RouterLink} href={paths.dashboard.proxy.detail(row.id)}>
-          管理
+          {canEditManagedProxy(row.observed) ? '管理' : '查看'}
         </Button>
       ),
     },
@@ -197,18 +199,20 @@ export function ProxyListView() {
         }
         sx={{ mb: 3 }}
       />
-      <Alert
-        severity="info"
-        sx={{ mb: 3 }}
-        action={
-          <Button component={RouterLink} href={paths.dashboard.settings.corefiles}>
-            管理版本
-          </Button>
-        }
-      >
-        当前托管版本：{files.isLoading ? '加载中' : current || '尚未设置'}
-        。切换托管版本后，需逐台执行升级。
-      </Alert>
+      {rows.some((row) => canEditManagedProxy(row.observed)) && (
+        <Alert
+          severity="info"
+          sx={{ mb: 3 }}
+          action={
+            <Button component={RouterLink} href={paths.dashboard.settings.corefiles}>
+              管理版本
+            </Button>
+          }
+        >
+          当前托管版本：{files.isLoading ? '加载中' : current || '尚未设置'}
+          。切换托管版本后，需逐台执行升级。
+        </Alert>
+      )}
       {(serversError || files.error || assignments.error || overview.error) && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {getErrorMessage(serversError || files.error || assignments.error || overview.error)}
