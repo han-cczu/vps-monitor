@@ -7,6 +7,7 @@
 ## 功能
 
 - 节点实时监控、历史曲线、Ping 延迟、账单与流量套餐。
+- 本期/开机累计流量切换；本账期入站、出站分别校准，支持双向合计计费。
 - sing-box 核心托管、配置预检与回滚，支持 VLESS Reality、Shadowsocks 2022、Hysteria2 和 TUIC。
 - 订阅用户、多种订阅格式、流量配额、到期控制和中转管理。
 - 告警规则、Webhook / Telegram 通知、TOTP、审计、备份和 Agent 更新。

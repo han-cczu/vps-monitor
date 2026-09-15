@@ -86,4 +86,15 @@ export type TrafficPeriod = {
   in: number;
   out: number;
   used: number;
+  calibration_revision: number;
+  calibrated_at: number;
+};
+
+export type TrafficCalibration = TrafficPeriod & {
+  mode: TrafficMode;
+  reset_day: number;
+  limit: number;
+  period_end_expected: number;
+  sample_received_at: number;
+  ready: boolean;
 };

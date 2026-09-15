@@ -32,7 +32,7 @@ export function TrafficScopeControl() {
       <Typography variant="caption" sx={{ color: 'text.secondary' }}>
         {scope === 'boot'
           ? '读取系统网卡累计，包含接入探针前的流量；重启或网卡重置后可能归零。'
-          : '从接入探针后的首次采样开始累计，按各节点账期重置。'}
+          : '按节点账期累计；可在节点详情分别校准入站、出站，补齐接入前的用量。'}
         {' 套餐用量与剩余流量按账期统计。'}
       </Typography>
     </Box>

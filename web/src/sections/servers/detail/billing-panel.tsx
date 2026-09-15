@@ -1,11 +1,13 @@
 import type { ServerItem, TrafficPeriod } from 'src/types/server';
 
 import useSWR from 'swr';
+import { useState } from 'react';
 
 import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import Alert from '@mui/material/Alert';
 import Table from '@mui/material/Table';
+import Button from '@mui/material/Button';
 import TableRow from '@mui/material/TableRow';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
@@ -23,7 +25,10 @@ import { TrafficRow } from 'src/sections/monitor/card-rows';
 
 import { getErrorMessage } from 'src/auth/utils';
 
+import { TrafficCalibrationDialog } from './traffic-calibration-dialog';
+
 export function BillingPanel({ server }: { server: ServerItem }) {
+  const [calibrating, setCalibrating] = useState(false);
   const live = useServer(server.id);
   const { data, error, isLoading } = useSWR<TrafficPeriod[]>(
     `/api/servers/${server.id}/traffic?months=12`,
@@ -34,9 +39,27 @@ export function BillingPanel({ server }: { server: ServerItem }) {
   const current = live?.traffic;
   return (
     <Card sx={{ p: 3 }}>
-      <Typography variant="h6" sx={{ mb: 2 }}>
-        账单与流量
-      </Typography>
+      <Box
+        sx={{
+          mb: 2,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 2,
+        }}
+      >
+        <Typography variant="h6">账单与流量</Typography>
+        <Button variant="outlined" onClick={() => setCalibrating(true)}>
+          校准本期流量
+        </Button>
+      </Box>
+      {calibrating && (
+        <TrafficCalibrationDialog
+          serverId={server.id}
+          serverName={server.name}
+          onClose={() => setCalibrating(false)}
+        />
+      )}
       <Box
         sx={{
           display: 'grid',

@@ -21,13 +21,14 @@ type Accountant struct {
 	now      func() time.Time
 	servers  map[int64]store.Server
 	counters map[int64]store.TrafficCounter
+	received map[int64]time.Time
 	periods  map[int64]store.TrafficPeriod
 	closed   []store.TrafficPeriod
 	dirty    bool
 }
 
 func New(db *store.DB, bus *hub.Bus) *Accountant {
-	return &Accountant{db: db, bus: bus, now: clock.Now, servers: map[int64]store.Server{}, counters: map[int64]store.TrafficCounter{}, periods: map[int64]store.TrafficPeriod{}}
+	return &Accountant{db: db, bus: bus, now: clock.Now, servers: map[int64]store.Server{}, counters: map[int64]store.TrafficCounter{}, received: map[int64]time.Time{}, periods: map[int64]store.TrafficPeriod{}}
 }
 
 func (a *Accountant) Load(ctx context.Context) error {
@@ -69,6 +70,7 @@ func (a *Accountant) Reload(ctx context.Context) error {
 		if _, ok := next[id]; !ok {
 			delete(a.periods, id)
 			delete(a.counters, id)
+			delete(a.received, id)
 		}
 	}
 	a.servers = next
@@ -81,6 +83,7 @@ func (a *Accountant) Forget(id int64) {
 	delete(a.servers, id)
 	delete(a.periods, id)
 	delete(a.counters, id)
+	delete(a.received, id)
 }
 
 func (a *Accountant) OnMetrics(id int64, m *proto.Metrics) {
@@ -100,6 +103,7 @@ func (a *Accountant) OnMetrics(id int64, m *proto.Metrics) {
 	}
 	a.roll(id, a.now())
 	a.counters[id] = store.TrafficCounter{ServerID: id, LastRX: m.Net.RxTotal, LastTX: m.Net.TxTotal, LastTS: m.TS}
+	a.received[id] = a.now()
 	a.dirty = true
 	if !exists {
 		return
@@ -110,6 +114,10 @@ func (a *Accountant) OnMetrics(id int64, m *proto.Metrics) {
 	p.Out = add(p.Out, delta(c.LastTX, m.Net.TxTotal))
 	a.periods[id] = p
 	used := Used(p, s.TrafficMode)
+	a.publishThresholds(id, s, previous, used)
+}
+
+func (a *Accountant) publishThresholds(id int64, s store.Server, previous, used int64) {
 	if s.TrafficLimit > 0 && a.bus != nil {
 		for _, threshold := range []int{80, 90, 100} {
 			if float64(previous)/float64(s.TrafficLimit)*100 < float64(threshold) && float64(used)/float64(s.TrafficLimit)*100 >= float64(threshold) {
@@ -191,7 +199,7 @@ func (a *Accountant) Flush(ctx context.Context) error {
 	defer a.mu.Unlock()
 	return a.flush(ctx, "")
 }
-func (a *Accountant) flush(ctx context.Context, date string) error {
+func (a *Accountant) flush(ctx context.Context, date string, calibration ...store.TrafficCalibrationCommit) error {
 	if !a.dirty && date == "" {
 		return nil
 	}
@@ -204,7 +212,13 @@ func (a *Accountant) flush(ctx context.Context, date string) error {
 	for _, p := range a.periods {
 		periods = append(periods, p)
 	}
-	if err := a.db.SaveTraffic(ctx, counters, periods, date); err != nil {
+	var err error
+	if len(calibration) > 0 {
+		err = a.db.SaveCalibratedTraffic(ctx, counters, periods, calibration[0])
+	} else {
+		err = a.db.SaveTraffic(ctx, counters, periods, date)
+	}
+	if err != nil {
 		return err
 	}
 	a.closed = nil

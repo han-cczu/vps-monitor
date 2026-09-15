@@ -560,7 +560,7 @@ core.stats 不信任 Agent 时间，按面板接收日期归入 daily；用户�
 
 ## 节点账单与流量（步骤 18）
 
-`GET /api/servers/{id}/traffic?months=12` 需要管理员 JWT，返回最新优先的数组 `[{period_start,period_end,in,out,used}]`；时间为 Unix 秒，当前账期 `period_end=null`，`months` 为 1–120，默认 12。读取前冲刷已接收的内存用量；历史 `used` 按节点当前 `traffic_mode` 计算。
+`GET /api/servers/{id}/traffic?months=12` 需要管理员 JWT，返回最新优先的数组 `[{period_start,period_end,in,out,used,calibration_revision,calibrated_at}]`；时间为 Unix 秒，当前账期 `period_end=null`，`months` 为 1–120，默认 12。读取前冲刷已接收的内存用量；历史 `used` 按节点当前 `traffic_mode` 计算。未校准账期的 `calibration_revision` / `calibrated_at` 均为 0。
 
 REST 节点列表/详情增加 `traffic_used`，上限沿用 `traffic_limit`。WS 的 `traffic={used,limit,mode,in,out,period_start,period_end_expected}` 中 `limit=0` 为不限；`net.in_total/out_total` 改为当前账期累计，`net.up/down` 仍为实时速率。四种模式为 in/out/sum/max。
 
@@ -694,3 +694,13 @@ TOTP为RFC6238、SHA1、六位、30秒周期，允许前后一个时间步。密
 未收到 metrics 的节点返回 `null`；离线后保留最后一次采样，服务端重启后需等待 Agent 再次上报。前端对缺少字段的旧服务端也显示未知，不用本期用量冒充系统累计。原有 `net.in_total/out_total` 和 `traffic` 保持账期统计语义，额度、告警和历史账单不受切换影响。
 
 总览和节点详情提供“本期流量 / 开机累计”切换，本期为默认，选择保存在当前浏览器。切换影响节点卡片出入站累计与总览的出站流量排序；顶部本期计费用量、套餐剩余、实时速率及历史曲线保持各自原有统计口径。无需升级 Agent。
+
+### 本期入站、出站校准
+
+在“节点详情 → 账单与流量 → 校准本期流量”中分别填入服务商本账期的已用入站、出站总量。例如安装探针前后合计已用入站 100 GB、出站 200 GB，填写这两个累计值，双向合计即 300 GB；不要额外叠加面板已有用量。表单支持 GB/TB（十进制）、GiB/TiB（二进制）及字节，最多 12 位小数，不足 1 字节四舍五入。填表前核对服务商账期、单位和统计时间；服务商计量口径或更新延迟仍可能带来差异。现有套餐的计费方式和限额保持不变，双向计费节点使用 `sum`。
+
+- `GET /api/servers/{id}/traffic/calibration`（管理员 JWT）：返回当前账期的 `period_start,period_end,in,out,used,calibration_revision,calibrated_at,mode,reset_day,limit,period_end_expected,sample_received_at,ready`。`sample_received_at` 为面板最近接受采样的时间，尚无采样时为 0；最近 2 分钟内收到有效新采样才可校准，面板重启后必须先收到新采样。
+- `POST` 同路径：提交 `{period_start,calibration_revision,mode,reset_day,in,out}`；前四项来自 GET 快照，两方向均必填非负整数字节（显式 0 有效），合计不超过 JS 安全整数 9007199254740991。成功返回最新校准快照。缺项、null、负值、小数字节、超限返回 400；节点不存在 404；账期/校准修订/计费方式/重置日变化或采样过期返回 409，重新打开或重新加载表单后再核对提交；未启用流量统计为 503。
+- 保存时以最近接受的探针采样为基准**替换**本期两方向累计值；保留原始网卡计数器，之后只累加新样本相对基准的增量。校准、基准、修订号与 `server.traffic.calibrate` 审计（操作者、IP、修改前后）在同一数据库事务中落盘；失败恢复校准前内存状态并保留未冲刷样本。重复提交或并行打开的旧表单不会再次覆盖用量。
+- 面板重启或节点网卡计数归零不清除已保存的本期校准用量。下个账期从 0 开始，校准修订也归零，旧账期保留校准结果。原始开机累计、实时速率不修改。校准向上跨过 80/90/100% 时沿用现有阈值事件和告警去重机制。
+- 迁移 `0013_traffic_calibration.sql` 为账期表增加两个默认 0 的元数据字段，原有用量保留；只需更新服务端和面板，不需更新探针。升级前备份数据库，回退旧版本可保留新增字段；若回退后又升级，必须在使用校准前核对用量。

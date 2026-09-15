@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 )
 
 // AuditEntry 是 audit_log 表的一行。TargetID / Before / After / IP 为空串时按 NULL 存。
@@ -19,7 +20,13 @@ type AuditEntry struct {
 
 // InsertAudit 追加一条审计记录，返回新行 ID。
 func (db *DB) InsertAudit(ctx context.Context, e AuditEntry) (int64, error) {
-	res, err := db.ExecContext(ctx,
+	return insertAudit(ctx, db, e)
+}
+
+func insertAudit(ctx context.Context, exec interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}, e AuditEntry) (int64, error) {
+	res, err := exec.ExecContext(ctx,
 		`INSERT INTO audit_log (ts, actor, action, target_type, target_id, "before", "after", ip)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.TS, e.Actor, e.Action, e.TargetType,

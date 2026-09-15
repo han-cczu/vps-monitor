@@ -55,12 +55,21 @@ func IPFromContext(ctx context.Context) string {
 // Record 写一条审计记录。actor 取 ctx 里的登录用户，没有则为 system；
 // before / after 会 JSON 序列化，传 nil 则留空。审计写失败只记日志，不影响主流程。
 func Record(ctx context.Context, db *store.DB, action, targetType, targetID string, before, after any) {
+	entry := Entry(ctx, action, targetType, targetID, before, after)
+	// 请求被客户端中断时也要把审计写完，所以去掉取消信号、只保留 ctx 里的值。
+	if _, err := db.InsertAudit(context.WithoutCancel(ctx), entry); err != nil {
+		slog.Error("audit record failed", "action", action, "target", targetType+"/"+targetID, "err", err)
+	}
+}
+
+// Entry builds an audit record for operations that persist their audit atomically.
+func Entry(ctx context.Context, action, targetType, targetID string, before, after any) store.AuditEntry {
 	actor := SystemActor
 	if p, ok := auth.PrincipalFromContext(ctx); ok {
 		actor = p.Name
 	}
 
-	entry := store.AuditEntry{
+	return store.AuditEntry{
 		TS:         time.Now().Unix(),
 		Actor:      actor,
 		Action:     action,
@@ -69,11 +78,6 @@ func Record(ctx context.Context, db *store.DB, action, targetType, targetID stri
 		Before:     toJSON(before),
 		After:      toJSON(after),
 		IP:         IPFromContext(ctx),
-	}
-
-	// 请求被客户端中断时也要把审计写完，所以去掉取消信号、只保留 ctx 里的值。
-	if _, err := db.InsertAudit(context.WithoutCancel(ctx), entry); err != nil {
-		slog.Error("audit record failed", "action", action, "target", targetType+"/"+targetID, "err", err)
 	}
 }
 

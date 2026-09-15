@@ -144,6 +144,8 @@ func NewRouter(deps Deps) http.Handler {
 			protected.Post("/servers/{id}/token", d.resetServerToken)
 			protected.Get("/servers/{id}/history", d.history)
 			protected.Get("/servers/{id}/traffic", d.trafficHistory)
+			protected.Get("/servers/{id}/traffic/calibration", d.trafficCalibration)
+			protected.Post("/servers/{id}/traffic/calibration", d.calibrateTraffic)
 			protected.Get("/ping-tasks", d.listPingTasks)
 			protected.Post("/ping-tasks", d.createPingTask)
 			protected.Put("/ping-tasks/{id}", d.updatePingTask)
