@@ -174,7 +174,7 @@ function InstanceCard({ item }: { item: ObservedInstance }) {
       <Typography variant="caption" color="text.secondary">
         配置声明和进程绑定均不代表端到端连通性验证；未知协议仍按原名称展示。
       </Typography>
-      <Box sx={{ height: Math.min(470, 125 + Math.max(1, item.inbounds.length) * 52), mt: 1 }}>
+      <Box sx={{ height: Math.min(620, 240 + Math.max(1, item.inbounds.length) * 52), mt: 1 }}>
         <DataGrid
           rows={item.inbounds}
           columns={columns}
