@@ -16,7 +16,7 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import CircularProgress from '@mui/material/CircularProgress';
 
-import { formatBytes, formatPanelDate } from 'src/utils/format';
+import { formatPanelDate, formatTrafficBytes } from 'src/utils/format';
 import {
   calibrationGB,
   calibratedUsage,
@@ -120,8 +120,8 @@ export function TrafficCalibrationDialog({
           保存会替换本期累计值，以保存时最近一次探针采样为起点继续累计；下个账期自动归零。
         </Alert>
         <Typography variant="body2" color="text.secondary">
-          请核对服务商的账期、统计时间和单位。GB/TB 按 1000 进制，GiB/TiB 按 1024 进制；不足 1
-          字节四舍五入。开机累计不受校准影响。
+          请核对服务商的账期、统计时间和单位。流量统一按十进制 GB/TB 填写（1 GB = 10 亿字节）； 不足
+          1 字节四舍五入。开机累计不受校准影响。
         </Typography>
         {error && <Alert severity="error">{error}</Alert>}
         {!snapshot && !error && <CircularProgress size={24} aria-label="加载本期流量" />}
@@ -134,7 +134,8 @@ export function TrafficCalibrationDialog({
               {MODE_LABELS[snapshot.mode]}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              打开时：入站 {formatBytes(snapshot.in)}，出站 {formatBytes(snapshot.out)}。
+              打开时：入站 {formatTrafficBytes(snapshot.in)}，出站{' '}
+              {formatTrafficBytes(snapshot.out)}。
               {snapshot.calibrated_at > 0 &&
                 ` 上次校准：${formatPanelDate(snapshot.calibrated_at)}。`}
             </Typography>
@@ -195,9 +196,9 @@ export function TrafficCalibrationDialog({
               <Alert
                 severity={snapshot.limit > 0 && used >= snapshot.limit ? 'warning' : 'success'}
               >
-                校准后计费用量：{formatBytes(used)}（{MODE_LABELS[snapshot.mode]}）
+                校准后计费用量：{formatTrafficBytes(used)}（{MODE_LABELS[snapshot.mode]}）
                 {snapshot.limit > 0 &&
-                  `，本期剩余 ${formatBytes(Math.max(0, snapshot.limit - used))}`}
+                  `，本期剩余 ${formatTrafficBytes(Math.max(0, snapshot.limit - used))}`}
               </Alert>
             )}
             {inBytes !== null && outBytes !== null && !valid && (

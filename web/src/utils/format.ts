@@ -26,8 +26,8 @@ export function setFormatPreferences(base: 1000 | 1024, timezone: string) {
 /**
  * 字节数转可读容量。
  *
- * 默认 1000 进制：agent 采的是 /proc 里的原始字节，而商家标称的「1 TB 流量」按 1000 算，
- * 用 1024 会让用户觉得面板少算了。步骤 20 接进设置项后可以按需切换。
+ * 内存、磁盘容量跟随站点显示设置，默认 1000 进制。
+ * 流量使用 formatTrafficBytes，固定按十进制显示。
  *
  * @example formatBytes(1_500_000_000) => '1.5 GB'
  * @example formatBytes(1_073_741_824, { base: 1024 }) => '1 GiB'
@@ -56,14 +56,19 @@ export function formatBytes(bytes: number, options?: { base?: 1000 | 1024 }): st
   return `${trimNumber(value)} ${base === 1024 ? BINARY_UNITS[unit] : BYTE_UNITS[unit]}`;
 }
 
+/** 流量固定按十进制 GB/TB 显示，不受内存、磁盘显示设置影响。 */
+export function formatTrafficBytes(bytes: number): string {
+  return formatBytes(bytes, { base: 1000 });
+}
+
 /**
- * 速率，单位是字节每秒。
+ * 网络速率，单位是字节每秒，固定按十进制显示。
  *
  * @example formatRate(303) => '303 B/s'
  * @example formatRate(1_500_000) => '1.5 MB/s'
  */
 export function formatRate(bytesPerSecond: number): string {
-  return `${formatBytes(bytesPerSecond)}/s`;
+  return `${formatTrafficBytes(bytesPerSecond)}/s`;
 }
 
 /**

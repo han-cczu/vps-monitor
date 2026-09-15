@@ -15,7 +15,7 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { paths } from 'src/routes/paths';
 import { useRouter } from 'src/routes/hooks';
 
-import { daysUntil, formatPrice, formatBytes } from 'src/utils/format';
+import { daysUntil, formatPrice, formatTrafficBytes } from 'src/utils/format';
 
 import { DashboardContent } from 'src/layouts/dashboard';
 import { updateAgents, useAgentVersions } from 'src/api/settings';
@@ -221,7 +221,7 @@ export function ServersListView() {
       headerName: '本期用量 / 上限',
       width: 180,
       renderCell: (params) =>
-        `${formatBytes(params.row.traffic_used ?? 0)} / ${params.row.traffic_limit ? formatTrafficLimit(params.row.traffic_limit) : '∞'}`,
+        `${formatTrafficBytes(params.row.traffic_used ?? 0)} / ${params.row.traffic_limit ? formatTrafficLimit(params.row.traffic_limit) : '∞'}`,
     },
     {
       field: 'traffic_mode',

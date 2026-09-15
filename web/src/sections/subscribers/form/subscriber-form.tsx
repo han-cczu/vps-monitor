@@ -16,6 +16,8 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import FormControlLabel from '@mui/material/FormControlLabel';
 
+import { GB, TRAFFIC_BASE } from 'src/utils/traffic-units';
+
 import {
   saveSubscriber,
   assignSubscriber,
@@ -42,7 +44,7 @@ export function SubscriberForm({
   const [name, setName] = useState(subscriber?.name ?? '');
   const [note, setNote] = useState(subscriber?.note ?? '');
   const [enabled, setEnabled] = useState(subscriber?.enabled ?? true);
-  const [limit, setLimit] = useState(String((subscriber?.traffic_limit ?? 0) / 1024 ** 3));
+  const [limit, setLimit] = useState(String((subscriber?.traffic_limit ?? 0) / GB));
   const [unit, setUnit] = useState(3);
   const [resetDay, setResetDay] = useState(subscriber?.reset_day ?? 0);
   const [expire, setExpire] = useState(subscriber?.expire_at ?? '');
@@ -52,7 +54,7 @@ export function SubscriberForm({
   const [confirm, setConfirm] = useState(false);
   const save = async () => {
     setError('');
-    const trafficLimit = Math.round(Number(limit) * 1024 ** unit);
+    const trafficLimit = Math.round(Number(limit) * TRAFFIC_BASE ** unit);
     if (
       !name.trim() ||
       name.trim().length > 64 ||
@@ -140,12 +142,12 @@ export function SubscriberForm({
                     value={unit}
                     onChange={(e) => {
                       const next = Number(e.target.value);
-                      setLimit(String(Number(limit) * 1024 ** (unit - next)));
+                      setLimit(String(Number(limit) * TRAFFIC_BASE ** (unit - next)));
                       setUnit(next);
                     }}
                     sx={{ minWidth: 100 }}
                   >
-                    {['B', 'KiB', 'MiB', 'GiB', 'TiB'].map((u, i) => (
+                    {['B', 'KB', 'MB', 'GB', 'TB'].map((u, i) => (
                       <MenuItem key={u} value={i}>
                         {u}
                       </MenuItem>

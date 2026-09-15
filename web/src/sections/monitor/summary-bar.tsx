@@ -8,7 +8,7 @@ import Card from '@mui/material/Card';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 
-import { daysUntil, formatRate, formatBytes } from 'src/utils/format';
+import { daysUntil, formatRate, formatTrafficBytes } from 'src/utils/format';
 
 import { fetcher } from 'src/lib/axios';
 import { useRealtime } from 'src/store/realtime';
@@ -54,7 +54,7 @@ export function SummaryBar() {
       <SummaryItem label="总下行" value={formatRate(summary.down)} />
       <SummaryItem
         label="本期计费用量"
-        value={formatBytes(summary.traffic)}
+        value={formatTrafficBytes(summary.traffic)}
         hint="全部节点当前账期已用流量之和"
       />
       <SummaryItem

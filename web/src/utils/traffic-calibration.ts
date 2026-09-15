@@ -1,14 +1,12 @@
 import type { TrafficMode } from 'src/types/server';
 
-export const CALIBRATION_UNITS = ['GB', 'TB', 'GiB', 'TiB', 'B'] as const;
+export const CALIBRATION_UNITS = ['GB', 'TB', 'B'] as const;
 export type CalibrationUnit = (typeof CALIBRATION_UNITS)[number];
 
 const FACTORS: Record<CalibrationUnit, bigint> = {
   B: 1n,
   GB: 1_000_000_000n,
   TB: 1_000_000_000_000n,
-  GiB: 1_073_741_824n,
-  TiB: 1_099_511_627_776n,
 };
 
 /** Parse decimal input without floating-point rounding; round sub-bytes half up. */

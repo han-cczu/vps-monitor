@@ -657,7 +657,7 @@ TOTP为RFC6238、SHA1、六位、30秒周期，允许前后一个时间步。密
 |---|---|---|
 | site.title | 1–80字字符串 | VPS Monitor |
 | site.tz | 有效IANA时区，不接受Local | VM_TZ/当前业务时钟 |
-| site.bytes_base | 1000或1024 | 1000 |
+| site.bytes_base | 1000或1024，仅影响内存、磁盘容量显示 | 1000 |
 | retention.metrics_minute_days | 整数1–3650 | 7 |
 | retention.metrics_hour_days | 整数1–3650 | 365 |
 | retention.ping_days | 整数1–3650 | 30 |
@@ -665,6 +665,8 @@ TOTP为RFC6238、SHA1、六位、30秒周期，允许前后一个时间步。密
 | alert.cooldown_minutes | 整数0–10080 | 30 |
 | enforce.count_mode | sum或download | sum |
 | sub.clash_template | 最大256KiB字符串，须通过订阅模块验证器 | 由订阅模块提供默认模板 |
+
+节点与订阅用户的流量套餐输入、用量、剩余额度、历史和网速统一按十进制换算与显示：1 GB = 1,000,000,000 字节，1 TB = 1,000 GB。流量校准支持 GB、TB、B。接口与数据库继续存储原始字节，已有配额及用量不自动改写；旧版按 1024 换算的节点套餐需按实际套餐重新填写，例如旧版填写 500 GB 的配额在新版编辑时为 536.870912 GB，重新填写 500 GB 并保存后才是十进制 500 GB。
 
 组合合同：`Deps.SettingsDefaults`补默认值，`ValidateSetting(key,json.RawMessage) error`执行额外校验，`SettingsChanged([]string)`仅在提交后通知缓存消费者。订阅模板未装配验证器时拒绝写入；批量事务不逐项调用SetSetting，订阅缓存失效应由提交后hook负责。审计只记录变更键，首次设置before为null（默认值原本生效），模板原文脱敏。
 
@@ -703,7 +705,7 @@ TOTP为RFC6238、SHA1、六位、30秒周期，允许前后一个时间步。密
 
 ### 本期入站、出站校准
 
-在“节点详情 → 账单与流量 → 校准本期流量”中分别填入服务商本账期的已用入站、出站总量。例如安装探针前后合计已用入站 100 GB、出站 200 GB，填写这两个累计值，双向合计即 300 GB；不要额外叠加面板已有用量。表单支持 GB/TB（十进制）、GiB/TiB（二进制）及字节，最多 12 位小数，不足 1 字节四舍五入。填表前核对服务商账期、单位和统计时间；服务商计量口径或更新延迟仍可能带来差异。现有套餐的计费方式和限额保持不变，双向计费节点使用 `sum`。
+在“节点详情 → 账单与流量 → 校准本期流量”中分别填入服务商本账期的已用入站、出站总量。例如安装探针前后合计已用入站 100 GB、出站 200 GB，填写这两个累计值，双向合计即 300 GB；不要额外叠加面板已有用量。表单支持 GB/TB（十进制）及字节，最多 12 位小数，不足 1 字节四舍五入。填表前核对服务商账期、单位和统计时间；服务商计量口径或更新延迟仍可能带来差异。现有套餐的计费方式和限额保持不变，双向计费节点使用 `sum`。
 
 - `GET /api/servers/{id}/traffic/calibration`（管理员 JWT）：返回当前账期的 `period_start,period_end,in,out,used,calibration_revision,calibrated_at,mode,reset_day,limit,period_end_expected,sample_received_at,ready`。`sample_received_at` 为面板最近接受采样的时间，尚无采样时为 0；最近 2 分钟内收到有效新采样才可校准，面板重启后必须先收到新采样。
 - `POST` 同路径：提交 `{period_start,calibration_revision,mode,reset_day,in,out}`；前四项来自 GET 快照，两方向均必填非负整数字节（显式 0 有效），合计不超过 JS 安全整数 9007199254740991。成功返回最新校准快照。缺项、null、负值、小数字节、超限返回 400；节点不存在 404；账期/校准修订/计费方式/重置日变化或采样过期返回 409，重新打开或重新加载表单后再核对提交；未启用流量统计为 503。

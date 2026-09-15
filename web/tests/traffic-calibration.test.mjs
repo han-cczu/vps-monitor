@@ -3,11 +3,9 @@ import test from 'node:test';
 
 import { calibrationBytes, calibrationGB, calibratedUsage } from '../src/utils/traffic-calibration.ts';
 
-test('calibration uses explicit decimal/binary units and exact byte conversion', () => {
+test('calibration uses decimal units and exact byte conversion', () => {
   assert.equal(calibrationBytes('300', 'GB'), 300_000_000_000);
-  assert.equal(calibrationBytes('300', 'GiB'), 322_122_547_200);
   assert.equal(calibrationBytes('1', 'TB'), 1_000_000_000_000);
-  assert.equal(calibrationBytes('1', 'TiB'), 1_099_511_627_776);
   assert.equal(calibrationBytes('1.000000001', 'GB'), 1_000_000_001);
   assert.equal(calibrationBytes('0.5', 'B'), 1);
   assert.equal(calibrationBytes('0', 'GB'), 0);

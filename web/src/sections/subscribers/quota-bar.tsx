@@ -2,9 +2,9 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import LinearProgress from '@mui/material/LinearProgress';
 
-import { formatBytes } from 'src/utils/format';
+import { formatTrafficBytes } from 'src/utils/format';
 
-export const bytesText = formatBytes;
+export const bytesText = formatTrafficBytes;
 export function QuotaBar({ used, limit }: { used: number; limit: number }) {
   const percent = limit > 0 ? (used / limit) * 100 : 0;
   return (

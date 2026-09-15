@@ -14,7 +14,7 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { paths } from 'src/routes/paths';
 import { RouterLink } from 'src/routes/components';
 
-import { daysUntil, formatBytes, formatPanelDate } from 'src/utils/format';
+import { daysUntil, formatPanelDate, formatTrafficBytes } from 'src/utils/format';
 
 import { DashboardContent } from 'src/layouts/dashboard';
 import { useSubscriber, useSubscribers, deleteSubscriber } from 'src/api/subscribers';
@@ -69,8 +69,8 @@ export function SubscribersListView() {
           </Button>
           {small && (
             <Typography noWrap variant="caption">
-              {formatBytes(row.traffic_used)} /{' '}
-              {row.traffic_limit ? formatBytes(row.traffic_limit) : '不限额'}
+              {formatTrafficBytes(row.traffic_used)} /{' '}
+              {row.traffic_limit ? formatTrafficBytes(row.traffic_limit) : '不限额'}
             </Typography>
           )}
         </Box>

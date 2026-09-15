@@ -73,9 +73,10 @@ export function SiteView() {
               />
               <TextField
                 select
-                label="流量显示单位"
+                label="内存 / 磁盘显示单位"
                 value={values['site.bytes_base']}
                 onChange={(e) => change('site.bytes_base', Number(e.target.value) as 1000 | 1024)}
+                helperText="流量套餐、用量和网速统一按 1000 进制显示（GB / TB）。"
               >
                 <MenuItem value={1000}>1000（KB / MB / GB）</MenuItem>
                 <MenuItem value={1024}>1024（KiB / MiB / GiB）</MenuItem>

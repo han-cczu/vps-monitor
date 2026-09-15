@@ -10,7 +10,7 @@ import Switch from '@mui/material/Switch';
 import Divider from '@mui/material/Divider';
 import Typography from '@mui/material/Typography';
 
-import { formatBytes } from 'src/utils/format';
+import { formatTrafficBytes } from 'src/utils/format';
 
 import { updateInbound, deleteInbound, regenerateKeys } from 'src/api/proxy';
 
@@ -95,8 +95,8 @@ export function InboundList({
             </Typography>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', my: 1 }}>
               分配用户 {subscribers ? countAssignments(subscribers, serverId, inbound.id) : '—'}
-              （含停用） · 上传 {core ? formatBytes(counter?.up ?? 0) : '—'} / 下载{' '}
-              {core ? formatBytes(counter?.down ?? 0) : '—'}
+              （含停用） · 上传 {core ? formatTrafficBytes(counter?.up ?? 0) : '—'} / 下载{' '}
+              {core ? formatTrafficBytes(counter?.down ?? 0) : '—'}
             </Typography>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
               <Button size="small" disabled={busy !== null} onClick={() => setEditing(inbound)}>

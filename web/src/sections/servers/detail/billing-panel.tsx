@@ -16,7 +16,7 @@ import Typography from '@mui/material/Typography';
 import TableContainer from '@mui/material/TableContainer';
 import CircularProgress from '@mui/material/CircularProgress';
 
-import { formatBytes, formatPrice, formatPanelDate } from 'src/utils/format';
+import { formatPrice, formatPanelDate, formatTrafficBytes } from 'src/utils/format';
 
 import axios, { fetcher } from 'src/lib/axios';
 import { useServer } from 'src/store/realtime';
@@ -162,9 +162,9 @@ export function BillingPanel({ server }: { server: ServerItem }) {
                   <TableCell>
                     {period.period_end ? date(period.period_end) : '当前流量周期'}
                   </TableCell>
-                  <TableCell>{formatBytes(period.in)}</TableCell>
-                  <TableCell>{formatBytes(period.out)}</TableCell>
-                  <TableCell>{formatBytes(period.used)}</TableCell>
+                  <TableCell>{formatTrafficBytes(period.in)}</TableCell>
+                  <TableCell>{formatTrafficBytes(period.out)}</TableCell>
+                  <TableCell>{formatTrafficBytes(period.used)}</TableCell>
                 </TableRow>
               ))}
               {!data?.length && !error && (

@@ -10,7 +10,7 @@ import Box from '@mui/material/Box';
 import Divider from '@mui/material/Divider';
 import Typography from '@mui/material/Typography';
 
-import { daysUntil, formatBytes, formatPrice, formatDuration } from 'src/utils/format';
+import { daysUntil, formatPrice, formatDuration, formatTrafficBytes } from 'src/utils/format';
 
 import { Label } from 'src/components/label';
 
@@ -31,10 +31,13 @@ export function TotalsRow({
   const label = scope === 'boot' ? '开机累计' : '本期';
   return (
     <Box sx={{ gap: 2, display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
-      <MetaPair label={`出站 · ${label}`} value={outTotal === null ? '—' : formatBytes(outTotal)} />
+      <MetaPair
+        label={`出站 · ${label}`}
+        value={outTotal === null ? '—' : formatTrafficBytes(outTotal)}
+      />
       <MetaPair
         label={`入站 · ${label}`}
-        value={inTotal === null ? '—' : formatBytes(inTotal)}
+        value={inTotal === null ? '—' : formatTrafficBytes(inTotal)}
         align="right"
       />
     </Box>
@@ -49,7 +52,7 @@ export function TrafficRow({ traffic }: { traffic: ServerSnapshot['traffic'] }) 
   const percent = limited ? (traffic.used / traffic.limit) * 100 : 0;
   const remaining = traffic
     ? limited
-      ? formatBytes(Math.max(0, traffic.limit - traffic.used))
+      ? formatTrafficBytes(Math.max(0, traffic.limit - traffic.used))
       : '∞'
     : '—';
   return (
@@ -65,7 +68,7 @@ export function TrafficRow({ traffic }: { traffic: ServerSnapshot['traffic'] }) 
           sx={{ color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}
         >
           {traffic
-            ? `${formatBytes(traffic.used)} / ${limited ? formatBytes(traffic.limit) : '∞'}`
+            ? `${formatTrafficBytes(traffic.used)} / ${limited ? formatTrafficBytes(traffic.limit) : '∞'}`
             : '—'}
         </Typography>
       </Box>
