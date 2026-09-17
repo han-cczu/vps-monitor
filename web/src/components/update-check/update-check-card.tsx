@@ -14,10 +14,11 @@ import { getErrorMessage } from 'src/auth/utils';
 
 import { latestLabel, latestValue, updateSummary } from './status';
 
-// 检查更新卡片：站点设置与节点页共用。
+// 检查更新卡片：全局版本入口，只在「设置 → 站点」顶部出现。
 //
 // 它只展示检查结果，不提供安装入口——面板与探针的升级仍走既有的人工部署、
-// 以及节点页原有的逐台/批量升级流程。
+// 以及节点页原有的逐台/批量升级流程。节点页曾重复引用同一张卡片，已移除，
+// 避免同一结论在两个页面各说一次。
 export function UpdateCheckCard() {
   const { data, error, mutate } = useUpdates();
   const [busy, setBusy] = useState(false);
