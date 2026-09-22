@@ -28,6 +28,8 @@ func (d *Deps) proxyRoutes(r chi.Router) {
 		r.Get("/servers/{id}/proxy-instances/{instance}", d.proxyInstance)
 		r.Get("/servers/{id}/proxy-instances/{instance}/{section:inbounds}", d.proxyInstance)
 		r.Post("/servers/{id}/proxy-observations/refresh", d.proxyObservationsRefresh)
+		r.Post("/servers/{id}/proxy-observations/reset", d.proxyResetObservations)
+		r.Delete("/servers/{id}/proxy-observations/{instance}", d.proxyDeleteObservation)
 		r.Get("/servers/{id}/subscriber-traffic", d.nodeSubscriberTraffic)
 		r.Post("/servers/{id}/inbounds", d.proxyCreateInbound)
 		r.Get("/inbounds/{id}", d.proxyGetInbound)

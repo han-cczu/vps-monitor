@@ -37,3 +37,41 @@ func TestFinalSendGuardAndNegotiatedConfig(t *testing.T) {
 		}
 	}
 }
+
+// 清理观测记录后换会话：老会话的地址变了，新会话随 config 下发给探针。
+func TestRotateProxySessionIssuesNewSession(t *testing.T) {
+	h := NewAgentHub(nil, nil, nil)
+	h.SetConfigBuilder(func(int64) any {
+		return proto.Config{Type: proto.TypeConfig, ReportInterval: 1}
+	})
+	ac := &agentConn{serverID: 1, send: make(chan []byte, 20), proxySession: "old", proxyManagement: "external"}
+	h.conns[1] = ac
+	if h.ProxySession(1) != "old" {
+		t.Fatal("session not visible")
+	}
+	// 清理前采集的分页带的是老会话；换会话后它就不再被接受。
+	if !h.RotateProxySession(1) {
+		t.Fatal("rotation refused for an online connection")
+	}
+	rotated := h.ProxySession(1)
+	if rotated == "" || rotated == "old" {
+		t.Fatalf("session not rotated: %q", rotated)
+	}
+	var delivered proto.Config
+	raw := <-ac.send
+	if err := json.Unmarshal(raw, &delivered); err != nil || delivered.Type != proto.TypeConfig {
+		t.Fatalf("rotation did not push a config: %s %v", raw, err)
+	}
+	if delivered.ProxyObserveSession != rotated {
+		t.Fatalf("probe was told the wrong session: %q", delivered.ProxyObserveSession)
+	}
+
+	// 离线节点没有会话可换。
+	delete(h.conns, 1)
+	if h.RotateProxySession(1) {
+		t.Fatal("rotation claimed success without a connection")
+	}
+	if h.ProxySession(1) != "" {
+		t.Fatal("offline node still reports a session")
+	}
+}
