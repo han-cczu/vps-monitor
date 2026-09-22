@@ -149,6 +149,40 @@ func (h *AgentHub) ProxyObserveSupported(id int64) bool {
 	return ac != nil && ac.proxySession != ""
 }
 
+// ProxySession 返回一条连接当前生效的观测会话；没有连接或尚未协商时为空串。
+// 观测服务用它核对一批分页是不是还属于当前这一代。
+func (h *AgentHub) ProxySession(id int64) string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if ac := h.conns[id]; ac != nil {
+		return ac.proxySession
+	}
+	return ""
+}
+
+// RotateProxySession 给一条在线连接换一个观测会话，并把新会话下发给探针。
+//
+// 面板清理观测记录后调用：观测会话是服务端签发的，换掉之后清理之前采集的分页
+// 会被判过期，无论它们何时到达——这是不依赖任何一方时钟的屏障。节点离线时返回
+// false：没有连接就没有在途分页可挡，探针下次连上本来就会拿到新会话。
+func (h *AgentHub) RotateProxySession(id int64) bool {
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return false
+	}
+	h.mu.Lock()
+	ac := h.conns[id]
+	if ac == nil || ac.proxySession == "" {
+		h.mu.Unlock()
+		return false
+	}
+	ac.proxySession = hex.EncodeToString(nonce[:])
+	h.mu.Unlock()
+
+	// 新 config 会带上新会话；探针收到后重新采集，重新采集的结果按新会话验收。
+	return h.SendTo(id, h.configFor(id))
+}
+
 // SetConfigBuilder 设置「agent 连上时下发什么 config」。
 //
 // 每台节点收到的任务列表不一样（ping 任务可以指定作用范围），所以是按 serverID 组装。
@@ -256,6 +290,9 @@ func (h *AgentHub) dispatch(ctx context.Context, serverID int64, raw []byte) {
 	case proto.TypeMetrics:
 		h.handleMetrics(serverID, raw)
 	case proto.TypeProxyObservation:
+		// 会话与消息一起取出：中途被 RotateProxySession 换掉的话，取到新会话就说明
+		// 这条老消息属于上一代，直接丢弃；取到老会话则说明轮换发生在分发的后面，
+		// 分页仍按老会话校验，不会写进清理后的库。
 		h.mu.Lock()
 		session := ""
 		if ac := h.conns[serverID]; ac != nil {

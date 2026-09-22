@@ -324,6 +324,11 @@ func run() error {
 	proxyService := proxy.New(db, reconciler)
 	proxyService.AllowManage = func(id int64) bool { return realtime.Agents.CanManageProxy(id, true) }
 	observations := proxyobserve.New(db)
+	// 清理观测记录后作废该节点的观测会话：会话由服务端签发，换掉之后
+	// "清理前采集、清理后才到达"的在途分页会被判过期。节点离线时不适用
+	// （没有在途分页，探针重连本来就会拿到新会话）。
+	observations.Session = realtime.Agents.ProxySession
+	observations.Supersede = realtime.Agents.RotateProxySession
 	realtime.Agents.OnObservation(func(ctx context.Context, id int64, session string, raw []byte) {
 		if err := observations.Receive(ctx, id, session, raw); err != nil {
 			slog.Warn("代理观测快照未接受", "server_id", id, "error", err)
